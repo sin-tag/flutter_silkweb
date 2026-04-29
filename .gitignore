@@ -86,3 +86,15 @@ integration_tests/snapshots/*.diff.png
 # WebF: build outputs
 bridge/build/
 
+# AI tooling — local dev artefacts only, not part of the package
+.agents/
+.claude/
+.codex/
+.mcp.json
+claude_memory/
+skills/
+AGENTS.md
+**/AGENTS.md
+CLAUDE.md
+**/CLAUDE.md
+
