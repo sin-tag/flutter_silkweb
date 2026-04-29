@@ -576,95 +576,140 @@ typedef NativeFetchJavaScriptESMModule = Void Function(
     Pointer<NativeString> moduleUrl,
     Pointer<NativeFunction<NativeFetchJavaScriptESMModuleCallback>> callback);
 
+// Resolve a module specifier against the page's base URL.
+// Public so tests can verify the resolution table directly.
+Uri? resolveEsmModuleUri(String moduleUrl, String baseUrl) {
+  // Already absolute — use as-is.
+  if (moduleUrl.startsWith('http://') ||
+      moduleUrl.startsWith('https://') ||
+      moduleUrl.startsWith('file://') ||
+      moduleUrl.startsWith('assets:')) {
+    return Uri.tryParse(moduleUrl);
+  }
+
+  // Protocol-relative: //cdn.example.com/foo.js
+  if (moduleUrl.startsWith('//')) {
+    return Uri.tryParse('https:$moduleUrl');
+  }
+
+  // data:text/javascript,... (inline modules)
+  if (moduleUrl.startsWith('data:')) {
+    return Uri.tryParse(moduleUrl);
+  }
+
+  // Absolute path: /foo.js
+  if (moduleUrl.startsWith('/')) {
+    if (baseUrl.startsWith('assets:')) {
+      // Treat the assets root as / so `import "/foo.js"` from an
+      // assets-loaded HTML resolves to assets:///foo.js. Previously
+      // returned an error and broke Vite/Webpack absolute imports.
+      return Uri.tryParse('assets://$moduleUrl'); // → assets:///foo.js
+    }
+    final Uri? baseUri = Uri.tryParse(baseUrl);
+    return baseUri?.resolve(moduleUrl);
+  }
+
+  // Bare specifier (`react`, `lodash`) — not supported without an import map.
+  // Return null so the caller can emit a clear error rather than silently
+  // probing the wrong path.
+  if (!moduleUrl.startsWith('./') && !moduleUrl.startsWith('../')) {
+    final Uri? baseUri = Uri.tryParse(baseUrl);
+    if (baseUri == null) return null;
+    // Best-effort: treat as relative to current dir.
+    return baseUri.resolve(moduleUrl);
+  }
+
+  // Relative ./ or ../
+  final Uri? baseUri = Uri.tryParse(baseUrl);
+  if (baseUri == null) return null;
+  if (baseUrl.startsWith('assets:')) {
+    // Manual resolution because Uri.resolve() doesn't grok the assets:///
+    // pseudo-scheme. Strip the leading "assets:///" once (handle both 2-
+    // and 3-slash forms defensively), then walk the parts to apply ./ ../
+    String stripped = baseUrl.replaceFirst(RegExp(r'^assets:/+'), '');
+    final int lastSlash = stripped.lastIndexOf('/');
+    final String basePath =
+        lastSlash >= 0 ? stripped.substring(0, lastSlash + 1) : '';
+    final List<String> parts = (basePath + moduleUrl).split('/');
+    final List<String> resolved = <String>[];
+    for (final part in parts) {
+      if (part.isEmpty || part == '.') continue;
+      if (part == '..') {
+        if (resolved.isNotEmpty) resolved.removeLast();
+        continue;
+      }
+      resolved.add(part);
+    }
+    return Uri.parse('assets:///${resolved.join('/')}');
+  }
+  return baseUri.resolve(moduleUrl);
+}
+
 void _fetchJavaScriptESMModule(Pointer<Void> callbackContext, double contextId, Pointer<NativeString> nativeModuleUrl,
     Pointer<NativeFunction<NativeFetchJavaScriptESMModuleCallback>> nativeCallback) async {
   String moduleUrl = nativeStringToString(nativeModuleUrl);
   DartFetchJavaScriptESMModuleCallback callback = nativeCallback.asFunction(isLeaf: true);
 
+  void fail(String reason) {
+    // Always log to the engine console so devs can see WHICH url + WHY in the
+    // standard `flutter run` output. Previously the failure was only visible
+    // as a JS ReferenceError without context.
+    bridgeLogger.warning('[esm] failed to load "$moduleUrl": $reason');
+    callback(callbackContext, contextId, reason.toNativeUtf8(), nullptr, 0);
+  }
+
   try {
     WebFController? controller = WebFController.getControllerOfJSContextId(contextId);
     if (controller == null) {
-      callback(callbackContext, contextId, 'No controller found for context $contextId'.toNativeUtf8(), nullptr, 0);
+      fail('No controller found for context $contextId');
       return;
     }
 
-    // Resolve the module URL relative to the base URL
-    String? baseUrl = controller.url;
-    Uri? resolvedUri;
-
-    // Check if it's already an absolute URL
-    if (moduleUrl.startsWith('http://') || moduleUrl.startsWith('https://')) {
-      // HTTP/HTTPS URLs should be used as-is
-      resolvedUri = Uri.tryParse(moduleUrl);
-    } else if (moduleUrl.startsWith('file://') || moduleUrl.startsWith('assets:')) {
-      // File and asset URLs are also absolute
-      resolvedUri = Uri.tryParse(moduleUrl);
-    } else if (moduleUrl.startsWith('//')) {
-      // Protocol-relative URL (e.g., //cdn.example.com/module.js)
-      // Use https by default
-      resolvedUri = Uri.tryParse('https:$moduleUrl');
-    } else if (moduleUrl.startsWith('/')) {
-      // Absolute path - this is tricky when base is assets://
-      // For HTTP imports from assets, we need to handle this specially
-      if (baseUrl.startsWith('assets:')) {
-        // Can't resolve absolute paths against assets, treat as error
-        callback(callbackContext, contextId, 'Cannot resolve absolute path "$moduleUrl" from assets URL'.toNativeUtf8(), nullptr, 0);
-        return;
-      } else {
-        Uri? baseUri = Uri.tryParse(baseUrl);
-        if (baseUri != null) {
-          resolvedUri = baseUri.resolve(moduleUrl);
-        }
-      }
-    } else {
-      // Relative URL - resolve against base URL
-      Uri? baseUri = Uri.tryParse(baseUrl);
-      if (baseUri != null) {
-        // Special handling for assets URLs
-        if (baseUrl.startsWith('assets:')) {
-          // For assets, we need to handle the path resolution manually
-          // Example: base = "assets:///assets/esm_demo.html", module = "modules/math.js"
-          // Result should be "assets:///assets/modules/math.js"
-          String basePath = baseUrl.substring('assets:///'.length);
-          int lastSlash = basePath.lastIndexOf('/');
-          if (lastSlash != -1) {
-            basePath = basePath.substring(0, lastSlash + 1);
-          } else {
-            basePath = '';
-          }
-          String resolvedPath = '$basePath$moduleUrl';
-          resolvedUri = Uri.parse('assets:///$resolvedPath');
-        } else {
-          resolvedUri = baseUri.resolve(moduleUrl);
-        }
-      }
-    }
-
+    final String baseUrl = controller.url;
+    final Uri? resolvedUri = resolveEsmModuleUri(moduleUrl, baseUrl);
     if (resolvedUri == null) {
-      callback(callbackContext, contextId, 'Failed to resolve module URL: $moduleUrl'.toNativeUtf8(), nullptr, 0);
+      fail('Could not resolve module URL "$moduleUrl" against base "$baseUrl". '
+          'Bare specifiers (e.g. `import "react"`) require an import map.');
       return;
     }
 
+    final String resolved = resolvedUri.toString();
     // Use WebFBundle to fetch the module content
-    WebFBundle bundle = WebFBundle.fromUrl(resolvedUri.toString(), additionalHttpHeaders: {'Accept': '*/*'}, contentType: ContentType('application', 'javascript', charset: UTF_8));
-    await bundle.resolve();
-    await bundle.obtainData(contextId);
-
-    if (bundle.data == null) {
-      callback(callbackContext, contextId, 'Failed to fetch module: ${resolvedUri.toString()}'.toNativeUtf8(), nullptr, 0);
-    } else {
-      // Pass the module content to C++
-      Pointer<Uint8> bytesPtr = malloc.allocate<Uint8>(bundle.data!.length + 1);
-      Uint8List dataView = bytesPtr.asTypedList(bundle.data!.length + 1);
-      dataView.setAll(0, bundle.data!);
-      dataView[bundle.data!.length] = 0; // Null terminate
-      callback(callbackContext, contextId, nullptr, bytesPtr, bundle.data!.length);
+    WebFBundle bundle;
+    try {
+      bundle = WebFBundle.fromUrl(resolved,
+          additionalHttpHeaders: {'Accept': '*/*'},
+          contentType: ContentType('application', 'javascript', charset: UTF_8));
+    } catch (e) {
+      fail('Unsupported module URL scheme: $resolved ($e)');
+      return;
     }
+
+    try {
+      await bundle.resolve();
+      await bundle.obtainData(contextId);
+    } catch (e, st) {
+      fail('Network/resolve error fetching $resolved: $e\n$st');
+      bundle.dispose();
+      return;
+    }
+
+    if (bundle.data == null || bundle.data!.isEmpty) {
+      fail('Empty body from $resolved (status / network failure)');
+      bundle.dispose();
+      return;
+    }
+
+    // Pass the module content to C++ (null-terminated for QuickJS).
+    Pointer<Uint8> bytesPtr = malloc.allocate<Uint8>(bundle.data!.length + 1);
+    Uint8List dataView = bytesPtr.asTypedList(bundle.data!.length + 1);
+    dataView.setAll(0, bundle.data!);
+    dataView[bundle.data!.length] = 0;
+    callback(callbackContext, contextId, nullptr, bytesPtr, bundle.data!.length);
 
     bundle.dispose();
   } catch (e, stack) {
-    String errmsg = '$e\n$stack';
-    callback(callbackContext, contextId, errmsg.toNativeUtf8(), nullptr, 0);
+    fail('Unhandled error: $e\n$stack');
   }
 }
 
