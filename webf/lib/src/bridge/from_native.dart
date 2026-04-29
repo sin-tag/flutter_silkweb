@@ -576,6 +576,19 @@ typedef NativeFetchJavaScriptESMModule = Void Function(
     Pointer<NativeString> moduleUrl,
     Pointer<NativeFunction<NativeFetchJavaScriptESMModuleCallback>> callback);
 
+// Returns true if [s] looks like a bare module specifier — `react`,
+// `@scope/pkg`, `react-dom/client`. False for URLs and path-relative
+// forms (`./x`, `../x`, `/x`, `https://...`, `file://...`, `assets:...`).
+bool isBareSpecifier(String s) {
+  if (s.isEmpty) return false;
+  if (s.startsWith('.')) return false;
+  if (s.startsWith('/')) return false;
+  if (s.startsWith('//')) return false;
+  if (s.startsWith('data:')) return false;
+  if (s.contains('://')) return false;
+  return true;
+}
+
 // Resolve a module specifier against the page's base URL.
 // Public so tests can verify the resolution table directly.
 Uri? resolveEsmModuleUri(String moduleUrl, String baseUrl) {
@@ -609,14 +622,10 @@ Uri? resolveEsmModuleUri(String moduleUrl, String baseUrl) {
     return baseUri?.resolve(moduleUrl);
   }
 
-  // Bare specifier (`react`, `lodash`) — not supported without an import map.
-  // Return null so the caller can emit a clear error rather than silently
-  // probing the wrong path.
-  if (!moduleUrl.startsWith('./') && !moduleUrl.startsWith('../')) {
-    final Uri? baseUri = Uri.tryParse(baseUrl);
-    if (baseUri == null) return null;
-    // Best-effort: treat as relative to current dir.
-    return baseUri.resolve(moduleUrl);
+  // Bare specifier — should have been rewritten by the import map already.
+  // If we hit this path it means the map didn't match; signal to caller.
+  if (isBareSpecifier(moduleUrl)) {
+    return null;
   }
 
   // Relative ./ or ../
@@ -666,10 +675,29 @@ void _fetchJavaScriptESMModule(Pointer<Void> callbackContext, double contextId, 
     }
 
     final String baseUrl = controller.url;
-    final Uri? resolvedUri = resolveEsmModuleUri(moduleUrl, baseUrl);
+    String specifier = moduleUrl;
+
+    // Apply the document's import map first — bare specifiers and trailing-
+    // slash prefixes get rewritten to their mapped URLs before regular
+    // resolution. Mirrors the spec order: import-map step → URL resolution.
+    final ImportMap importMap = controller.view.document.importMap;
+    if (!importMap.isEmpty) {
+      final mapped = importMap.resolve(specifier, baseUrl);
+      if (mapped != null) {
+        specifier = mapped;
+      }
+    }
+
+    final Uri? resolvedUri = resolveEsmModuleUri(specifier, baseUrl);
     if (resolvedUri == null) {
-      fail('Could not resolve module URL "$moduleUrl" against base "$baseUrl". '
-          'Bare specifiers (e.g. `import "react"`) require an import map.');
+      if (isBareSpecifier(specifier)) {
+        fail('Bare module specifier "$specifier" is not declared in any '
+            'import map. Add `<script type="importmap">{ "imports": '
+            '{"$specifier": "<url>"} }</script>` to your HTML, or use a '
+            'full URL/path.');
+      } else {
+        fail('Could not resolve module URL "$specifier" against base "$baseUrl".');
+      }
       return;
     }
 

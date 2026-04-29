@@ -1285,37 +1285,12 @@ char* ExecutingContext::ModuleNormalizeName(JSContext* ctx, const char* module_b
     return normalized_name;
   }
 
-  // For relative paths without ./, resolve against base
-  if (module_base_name) {
-    std::string base_path(module_base_name);
-
-    // Check if base is an HTTP/HTTPS URL
-    bool is_http_base = (base_path.find("http://") == 0 || base_path.find("https://") == 0);
-
-    if (is_http_base) {
-      // For HTTP URLs, preserve the full URL structure
-      size_t last_slash = base_path.rfind('/');
-      if (last_slash != std::string::npos) {
-        base_path = base_path.substr(0, last_slash + 1);
-      } else {
-        // If no slash found, add one to the end
-        base_path += "/";
-      }
-    } else {
-      // For file/asset URLs, handle as before
-      size_t last_slash = base_path.rfind('/');
-      if (last_slash != std::string::npos) {
-        base_path = base_path.substr(0, last_slash + 1);
-      } else {
-        base_path = "";
-      }
-    }
-
-    std::string resolved = base_path + module_name;
-    return js_strdup(ctx, resolved.c_str());
-  }
-
-  // Default: return as-is
+  // Bare specifier (`react`, `lodash`, `react-dom/client`) — pass through
+  // unchanged so the Dart-side fetcher can consult the import map. The old
+  // code prefixed it with the importer's URL path, which was always wrong:
+  // `import "react"` from https://example.com/app.js used to resolve to
+  // https://example.com/react, which obviously 404s. Per the ESM spec, bare
+  // specifiers must be rewritten by an import map or rejected.
   return js_strdup(ctx, module_name);
 }
 

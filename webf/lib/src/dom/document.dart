@@ -112,6 +112,13 @@ List<MapEntry<Element, bool>> pruneNestedDirtyStyleElements(
 class Document extends ContainerNode {
   final WebFController controller;
   late AnimationTimeline animationTimeline;
+
+  /// Active import map for this document. Populated when a
+  /// `<script type="importmap">` is parsed; defaults to an empty map so the
+  /// rest of the engine can call `importMap.resolve(...)` without a null
+  /// guard.
+  ImportMap importMap = ImportMap.empty;
+
   Map<String, List<Element>> elementsByID = {};
   Map<String, List<Element>> elementsByName = {};
   // Fast indices to support targeted invalidation

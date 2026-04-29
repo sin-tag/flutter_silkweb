@@ -28,6 +28,7 @@ const String _MIME_APPLICATION_JAVASCRIPT = 'application/javascript';
 const String _MIME_X_APPLICATION_JAVASCRIPT = 'application/x-javascript';
 const String _MIME_X_APPLICATION_KBC = 'application/vnd.webf.bc1';
 const String _JAVASCRIPT_MODULE = 'module';
+const String _IMPORT_MAP = 'importmap';
 
 enum ScriptReadyState { loading, interactive, complete }
 
@@ -382,11 +383,34 @@ class ScriptElement extends Element {
     }
   }
 
+  /// Parse an inline `<script type="importmap">` block. Browsers require this
+  /// to appear before any module script; we install eagerly on connect so
+  /// any later `<script type="module">` resolution sees it.
+  void _registerImportMapFromInlineContent() {
+    final String? text = collectElementChildText();
+    if (text == null || text.trim().isEmpty) return;
+    try {
+      ownerDocument.importMap = ImportMap.parse(text);
+    } catch (e, st) {
+      // Bad JSON — log and ignore. Browsers throw a console error and refuse
+      // the map entirely; we mirror the "refuse" half (importMap stays empty).
+      // ignore: avoid_print
+      print('[importmap] failed to parse: $e\n$st');
+    }
+  }
+
   @override
   void connectedCallback() async {
     super.connectedCallback();
     double? contextId = ownerDocument.contextId;
     if (contextId == null) return;
+    // <script type="importmap"> is a config-only element — its body is JSON,
+    // never executed as code. Parse on connect, before any module script
+    // gets a chance to load.
+    if (_type == _IMPORT_MAP) {
+      _registerImportMapFromInlineContent();
+      return;
+    }
     if (src.isNotEmpty) {
       _fetchAndExecuteSource();
     } else if (_type == _MIME_TEXT_JAVASCRIPT || _type == _JAVASCRIPT_MODULE) {
