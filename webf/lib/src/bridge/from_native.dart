@@ -700,12 +700,30 @@ void _fetchJavaScriptESMModule(Pointer<Void> callbackContext, double contextId, 
       return;
     }
 
+    // Wrap non-JS module bodies so QuickJS can treat them as ES modules with
+    // a default export — same shape as the browser's import-assertions
+    // proposal, but works without `assert { type: ... }` because Vite output
+    // sometimes drops the assertion when bundling.
+    Uint8List body = bundle.data!;
+    final String lowerPath = resolvedUri.path.toLowerCase();
+    final String? ctSubtype = bundle.contentType.subType.toLowerCase();
+    final bool isJsonModule = lowerPath.endsWith('.json') ||
+        ctSubtype == 'json' ||
+        ctSubtype == 'manifest+json';
+    if (isJsonModule) {
+      // `export default <raw-json-text>` — JSON.parse-equivalent at module
+      // load time. Note: any trailing newline / BOM is tolerated by QuickJS.
+      final String jsonText = utf8.decode(body, allowMalformed: true);
+      final String wrapped = 'export default ${jsonText.trim()};\n';
+      body = Uint8List.fromList(utf8.encode(wrapped));
+    }
+
     // Pass the module content to C++ (null-terminated for QuickJS).
-    Pointer<Uint8> bytesPtr = malloc.allocate<Uint8>(bundle.data!.length + 1);
-    Uint8List dataView = bytesPtr.asTypedList(bundle.data!.length + 1);
-    dataView.setAll(0, bundle.data!);
-    dataView[bundle.data!.length] = 0;
-    callback(callbackContext, contextId, nullptr, bytesPtr, bundle.data!.length);
+    Pointer<Uint8> bytesPtr = malloc.allocate<Uint8>(body.length + 1);
+    Uint8List dataView = bytesPtr.asTypedList(body.length + 1);
+    dataView.setAll(0, body);
+    dataView[body.length] = 0;
+    callback(callbackContext, contextId, nullptr, bytesPtr, body.length);
 
     bundle.dispose();
   } catch (e, stack) {
