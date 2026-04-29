@@ -734,15 +734,47 @@ void _fetchJavaScriptESMModule(Pointer<Void> callbackContext, double contextId, 
     // sometimes drops the assertion when bundling.
     Uint8List body = bundle.data!;
     final String lowerPath = resolvedUri.path.toLowerCase();
-    final String? ctSubtype = bundle.contentType.subType.toLowerCase();
+    final String ctSubtype = bundle.contentType.subType.toLowerCase();
     final bool isJsonModule = lowerPath.endsWith('.json') ||
         ctSubtype == 'json' ||
         ctSubtype == 'manifest+json';
+    final bool isCssModule = lowerPath.endsWith('.css') || ctSubtype == 'css';
+
     if (isJsonModule) {
       // `export default <raw-json-text>` — JSON.parse-equivalent at module
       // load time. Note: any trailing newline / BOM is tolerated by QuickJS.
       final String jsonText = utf8.decode(body, allowMalformed: true);
       final String wrapped = 'export default ${jsonText.trim()};\n';
+      body = Uint8List.fromList(utf8.encode(wrapped));
+    } else if (isCssModule) {
+      // CSS module — inject as a <style> element on import (matches Vite
+      // dev-server behaviour) and export a CSSStyleSheet-shaped object so
+      // code that does `import css from './x.css'` doesn't crash. We also
+      // tag the element with data-webf-css-module so HMR / dev tooling can
+      // find it.
+      final String cssText = utf8.decode(body, allowMalformed: true);
+      // jsonEncode on a String produces a valid JS string literal — it
+      // escapes backslashes, quotes, control chars and Unicode.
+      final String jsCssLiteral = jsonEncode(cssText);
+      final String jsHrefLiteral = jsonEncode(resolvedUri.toString());
+      final String wrapped = '''
+const __webf_css_text = $jsCssLiteral;
+const __webf_css_href = $jsHrefLiteral;
+const __webf_style = document.createElement('style');
+__webf_style.setAttribute('data-webf-css-module', __webf_css_href);
+__webf_style.textContent = __webf_css_text;
+(document.head || document.documentElement).appendChild(__webf_style);
+const __webf_sheet = {
+  type: 'text/css',
+  href: __webf_css_href,
+  ownerNode: __webf_style,
+  get cssRules() { return __webf_style.sheet ? __webf_style.sheet.cssRules : []; },
+  replaceSync(text) { __webf_style.textContent = text; },
+  replace(text) { __webf_style.textContent = text; return Promise.resolve(this); },
+  toString() { return __webf_style.textContent; },
+};
+export default __webf_sheet;
+''';
       body = Uint8List.fromList(utf8.encode(wrapped));
     }
 
