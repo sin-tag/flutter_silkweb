@@ -1,5 +1,5 @@
-name: webf_example
-description: Demonstrates how to use the webf plugin.
+name: flutter_silkweb_example
+description: Demonstrates how to use the flutter_silkweb plugin.
 
 # The following line prevents the package from being accidentally published to
 # pub.dev using `pub publish`. This is preferred for private packages.
@@ -14,10 +14,9 @@ dependencies:
   go_router: ^16.1.0
   example_app:
     path: rust_builder
-  webf: ^0.10.0
+  flutter_silkweb:
+    path: ../
   shadcn_ui: ^0.43.3
-  #  For enterprise version:
-  #  webf: ^0.23.10  # Enterprise version available on pub.dev
   flutter_highlight: ^0.7.0
   dropdown_button2: ^2.3.9
   dynamic_tabbar: ^1.0.9

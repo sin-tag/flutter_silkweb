@@ -10,6 +10,7 @@
 import 'dart:async';
 
 import 'package:flutter/services.dart';
+import 'package:flutter_silkweb/launcher.dart';
 import 'package:flutter_silkweb/src/module/module_manager.dart';
 
 class ClipBoardModule extends WebFBaseModule {
@@ -31,21 +32,22 @@ class ClipBoardModule extends WebFBaseModule {
   void dispose() {}
 
   @override
-  Future<dynamic> invoke(String method, List<dynamic> params) {
-    Completer<dynamic> completer = Completer();
+  Future<dynamic> invoke(String method, List<dynamic> params) async {
+    final controller = moduleManager?.controller;
     if (method == 'readText') {
-      ClipBoardModule.readText().then((String value) {
-        completer.complete(value);
-      }).catchError((e, stack) {
-        completer.completeError(e, stack);
-      });
-    } else if (method == 'writeText') {
-      ClipBoardModule.writeText(params[0]).then((_) {
-        completer.complete();
-      }).catchError((e, stack) {
-        completer.completeError(e, stack);
-      });
+      // Permission gate — host can revoke clipboard:read for untrusted bundles.
+      if (controller != null) {
+        await controller.requirePermission(WebFPermission.clipboardRead);
+      }
+      return await ClipBoardModule.readText();
     }
-    return completer.future;
+    if (method == 'writeText') {
+      if (controller != null) {
+        await controller.requirePermission(WebFPermission.clipboardWrite);
+      }
+      await ClipBoardModule.writeText(params[0]);
+      return null;
+    }
+    return null;
   }
 }

@@ -796,6 +796,28 @@ class WebFController with Diagnosticable {
   Completer controllerOnDOMContentLoadedCompleter = Completer();
   Completer viewportLayoutCompleter = Completer();
 
+  /// Permission gate for sandbox-able JS APIs (clipboard, geolocation,
+  /// camera, …). When `null`, no permission checks run — the host trusts
+  /// the bundle. See [WebFPermissionPolicy] for usage.
+  WebFPermissionPolicy? permissionPolicy;
+
+  /// Synchronous permission query — returns the current status without
+  /// triggering the resolver. Use [requirePermission] from inside a module
+  /// implementation to actually gate a call.
+  WebFPermissionStatus queryPermission(WebFPermission permission) {
+    return permissionPolicy?.query(permission) ?? WebFPermissionStatus.granted;
+  }
+
+  /// Async check used by permission-gated modules. Returns true when the
+  /// call may proceed; throws [WebFPermissionDeniedError] otherwise so the
+  /// JS side surfaces a `NotAllowedError` to the bundle.
+  Future<void> requirePermission(WebFPermission permission) async {
+    final policy = permissionPolicy;
+    if (policy == null) return; // unsandboxed
+    final ok = await policy.check(permission);
+    if (!ok) throw WebFPermissionDeniedError(permission);
+  }
+
   WebFController({
     bool enableDebug = false,
     bool enableBlink = false,
