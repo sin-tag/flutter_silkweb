@@ -455,17 +455,19 @@ uint8_t BindingObject::LayoutCacheBitFor(const AtomicString& prop) {
 }
 
 bool BindingObject::TryGetLayoutCache(uint8_t bit, uint64_t epoch, double& out) const {
-  if (bit == 0) return false;
-  if (cached_layout_epoch_ != epoch) return false;
-  if ((cached_layout_mask_ & bit) == 0) return false;
-  // Bits map to indices 0..3 via __builtin_ctz. Use a small switch to avoid
-  // intrinsics that aren't portable across MSVC/Clang.
-  int index = bit == kLayoutCacheBitOffsetWidth   ? 0
-              : bit == kLayoutCacheBitOffsetHeight ? 1
-              : bit == kLayoutCacheBitClientWidth  ? 2
-                                                   : 3;
-  out = cached_layout_values_[index];
-  return true;
+  // DISABLED in v1.0.x — the epoch counter only tracks JS-side mutations,
+  // but layout also changes on viewport resize, animation ticks, image
+  // loads, and ResizeObserver deliveries that don't bump the epoch.
+  // Returning cached values across those events causes React to measure
+  // stale geometry and lay out wrong ("UI vỡ nát" reports).
+  //
+  // The cache infrastructure (epoch atomic + per-instance fields) is kept
+  // so we can re-enable behind a flag once we hook into Flutter's frame
+  // boundary to invalidate on every paint pass.
+  (void)bit;
+  (void)epoch;
+  (void)out;
+  return false;
 }
 
 void BindingObject::StoreLayoutCache(uint8_t bit, uint64_t epoch, double value) const {

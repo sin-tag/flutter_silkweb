@@ -177,24 +177,18 @@ class WebFViewController with Diagnosticable implements WidgetsBindingObserver {
       return;
     }
 
-    // Cheap FFI counter read. Skipping flushUICommand when nothing is pending
-    // avoids a PostToDartSync round-trip that would otherwise block the JS
-    // thread on every idle frame and keep vsync spinning.
-    final int pending = getUICommandSize(contextId);
-    if (pending > 0) {
-      flushUICommand(this, window.pointer!);
-    }
+    // Reverted in v1.0.x — the "skip when pending == 0" optimisation looked
+    // safe (just avoid an empty FFI), but in practice it stopped Flutter
+    // from ticking when WebF still needed paint passes for layout settling
+    // and Ticker-driven animations on idle frames. The original
+    // unconditional flush + scheduleFrame is what every animation/layout
+    // path expects; we'll revisit with a proper "needs paint" signal later.
+    flushUICommand(this, window.pointer!);
     _scheduleBlinkStyleUpdateForNextFrame();
-    // Deliver pending IntersectionObserver entries to JS side.
-    // Safe to call every frame; it will no-op when there are no entries.
     deliverIntersectionObserver();
     SchedulerBinding.instance
         .addPostFrameCallback((_) => _flushPendingCommandsPerFrameLoop());
-    // Only force a new frame when there was actual work this tick; otherwise
-    // let the engine idle until a real input/animation arrives.
-    if (pending > 0) {
-      SchedulerBinding.instance.scheduleFrame();
-    }
+    SchedulerBinding.instance.scheduleFrame();
   }
 
   final Map<String, Completer<void>> _hybridRouteLoadCompleter = {};
