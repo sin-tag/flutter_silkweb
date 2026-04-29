@@ -1,302 +1,279 @@
-<h1 align="center">
-<a href="https://openwebf.com" alt="openwebf-site">OpenWebF</a>
-</h1>
+<h1 align="center">flutter_silkweb</h1>
+
 <p align="center">
-  <b>Bring JavaScript and Web Dev to <strong>Flutter</strong></b><br/>
-</p>
-<p align="center">
-  <a href="https://openwebf.com/en/docs/learn-webf">
-    <b>Learn WebF</b>
-  </a>
-  |
-  <a href="https://openwebf.com/en/docs/developer-guide">
-    <b>Developer Guide</b>
-  </a>
-  |
-  <a href="https://openwebf.com/en/docs/add-webf-to-flutter/overview">
-    <b>Add WebF to Flutter</b>
-  </a>
-</p>
-<p align="center">
-  <a aria-label="X" href="https://x.com/openwebf" target="_blank">
-    <img alt="" src="https://img.shields.io/badge/Twitter-black?style=for-the-badge&logo=Twitter">
-  </a>
-  <a aria-label="Discord-Link" href="https://discord.gg/DvUBtXZ5rK" target="_blank">
-    <img alt="" src="https://img.shields.io/badge/Discord-black?style=for-the-badge&logo=discord">
-  </a>
-  <a aria-label="Pub Package" href="https://pub.dev/packages/webf">
-    <img alt="" src="https://img.shields.io/badge/Flutter-02569B?style=for-the-badge&logo=flutter&logoColor=white" />
-  </a>
+  <b>Embed React, Vue, and Tailwind apps inside Flutter — at native speed.</b>
 </p>
 
-## What is WebF?
+<p align="center">
+  <a href="#install"><b>Install</b></a>
+  ·
+  <a href="#quick-start"><b>Quick start</b></a>
+  ·
+  <a href="#mini-app-permissions"><b>Permissions</b></a>
+  ·
+  <a href="#reactive-bridge"><b>Reactive bridge</b></a>
+  ·
+  <a href="OPTIMIZATION_NOTES.md"><b>What's optimized</b></a>
+</p>
 
-**WebF is a W3C/WHATWG-compliant web runtime for Flutter** that implements HTML, CSS, and the DOM, running JavaScript in a browser-like environment. It's not a browser—it's an **application runtime optimized for building native apps** using web technologies.
+---
 
-Unlike traditional WebViews, WebF features:
-- A **custom Flutter-based rendering engine** rather than relying on system browsers
-- **Direct JavaScript-to-native communication** without traditional bridge limitations
-- Ability to **embed Flutter widgets as HTML elements** within the app UI
-- An **application-first design** with a persistent JavaScript context
+`flutter_silkweb` is a W3C-compliant web rendering engine for Flutter. Drop a
+React/Vue/Vite bundle into a Flutter app and it renders directly on Skia —
+no WebView, no JS bridge round-trip per paint, no compromised animations.
 
-## Why WebF?
+It's designed for **mini-app workloads** where you want web-team velocity
+inside a native shell: Tailwind components for UI, Flutter for camera /
+sensors / payments, and a typed Dart ↔ JS reactive channel between them.
 
-**Build Fast. Ship Fast. Run Fast.**
+## Why
 
-WebF seamlessly glues Web, Flutter, and Native platforms together, enabling you to:
+| | InAppWebView | webview_flutter | **flutter_silkweb** |
+|---|---|---|---|
+| Renders on | OS WebView | OS WebView | **Skia (Flutter native)** |
+| Touch latency | OS-dependent | OS-dependent | **vsync-aligned, no IPC** |
+| Animations | OS browser FPS | OS browser FPS | **60 fps GPU-driven** |
+| Tailwind support | Full | Full | **Full** (incl. backdrop-filter, animate-bounce, ::placeholder, min/max calc) |
+| Reactive state bridge | Hand-rolled `postMessage` | Hand-rolled `postMessage` | **Typed `Stream<T>` / `ValueListenable<T>`** |
+| Permission gate | App-wide WebView | App-wide WebView | **Per-bundle manifest + runtime policy** |
+| Bundle size | OS-bundled | OS-bundled | **~150 MB source, ~5 MB compiled bridge** |
 
-- **🚀 Build Fast:** Develop with React, Vue, Svelte, Solid + TailwindCSS, build with Vite or Webpack, and leverage the entire npm ecosystem - it all just works in WebF
-- **📦 Ship Fast:** Deploy once across all Flutter-supported platforms (iOS, Android, Windows, macOS, Linux) from a single codebase
-- **⚡ Run Fast:** Experience native-like performance with sub-100ms cold starts and 60fps animations that outpaces traditional WebView solutions
+## Install
 
-## Key Features
+`flutter_silkweb` ships as a git package — no pub.dev account required.
 
-### Web Standards Compliance
+```yaml
+dependencies:
+  flutter_silkweb:
+    git:
+      url: https://github.com/sin-tag/flutter_silkweb.git
+      ref: main           # or pin a specific commit / tag
+      path: webf
+```
 
-- **🔷 Modern JavaScript (ES6+)** - QuickJS runtime with async/await, Promises, modules, optional chaining, and template literals
-- **🔷 Essential DOM APIs** - Element creation/manipulation, event listeners (capture/bubble), query selectors, classList, custom elements, MutationObserver
-- **🔷 Comprehensive CSS Support** - Flexbox layouts, positioned layouts (absolute/relative/fixed/sticky), flow layouts, colors, gradients, transforms (2D/3D), transitions, animations, CSS variables, media queries, pseudo-classes
-- **🔷 Web APIs** - `fetch`, `XMLHttpRequest`, `WebSockets`, `localStorage`, `sessionStorage`, `Canvas 2D`, `SVG`, URL parsing, timers
+Then:
 
-### Framework & Tooling Compatibility
+```bash
+flutter pub get
+cd ios && pod install     # iOS only
+flutter run
+```
 
-- **⚛️ Frameworks:** React, Vue, Svelte, Preact, Solid, Qwik - your existing components and hooks work without modification
-- **🛠️ Build Tools:** Vite (recommended), Webpack, esbuild, Rollup, Parcel - HMR, tree-shaking, code splitting all supported
-- **🎨 Styling:** Tailwind CSS v3, Sass/SCSS, PostCSS, CSS Modules, Styled Components, Emotion
-- **📦 npm Ecosystem:** Access to thousands of npm packages and the entire JavaScript ecosystem
+The C++ bridge is compiled from source on first build per platform. Initial
+build is slower than a stock pub.dev package; subsequent builds are cached.
 
-### Flutter Integration
-
-- **🔗 Hybrid UI** - Embed Flutter widgets as HTML custom elements with native performance and platform-appropriate appearance
-- **🎯 Advanced Gestures** - Handle complex touch interactions with native precision via `FlutterGestureDetector`
-- **📱 Native Plugins** - Access Flutter plugins (Share, Deep linking, and more) as npm packages
-- **🏗️ Cupertino Components** - iOS-style native components without CSS emulation
-
-### Developer Experience
-
-- **🔍 Chrome DevTools** - Console, DOM inspection, and network monitoring
-- **📊 In-App DevTools** - FPS, frame timing, and memory monitoring
-- **🔥 Hot Module Replacement** - Full HMR support that preserves state across updates
-- **⚡ Async Rendering** - Batched DOM updates that are 20x cheaper than browser implementations
-
-### Deployment & Performance
-
-- **🚀 Over-the-Air Updates** - Deploy instantly via CDN without app store reviews (compliant with Apple App Store and Google Play Store policies)
-- **⚡ Fast Startup** - Production cold start < 100ms, development 200-300ms
-- **🎮 Smooth Animations** - 60fps/120fps CSS transform animations with hardware acceleration
-- **💾 Optimized Memory** - Typical 10-30MB JavaScript heap with shared rendering context
-- **🔒 Security** - Application sandbox, keychain/keystore encrypted storage with biometric protection, HTTPS enforcement
-
-## How It Works
-
-### Architecture Overview
-
-WebF combines two complementary layers to deliver a complete web runtime:
-
-#### 1. Web Standards Layer
-- **QuickJS JavaScript Runtime** - Lightweight engine supporting ES6+ with a single, persistent context per instance
-- **W3C/WHATWG DOM Implementation** - Essential DOM APIs with event handling (capture/bubble phases)
-- **CSSOM Implementation** - CSS parsing and rule calculation following web standards
-
-#### 2. Custom Rendering Engine
-- **Flutter-Based Layout Engine** - Supports Flexbox (recommended), positioned layouts, and flow layouts
-- **Hardware-Accelerated Rendering** - Direct integration with Flutter's rendering pipeline
-- **No System Dependencies** - Independent of system WebViews or browser engines
-
-### Rendering Pipeline
-
-1. **JavaScript Execution** → Modifies the DOM
-2. **CSS Calculation** → Rules are calculated and applied
-3. **Layout** → Element positions and sizes determined
-4. **Paint** → Visual representation created
-5. **Composite** → Flutter widgets composite the final output
-
-**Key Optimization:** WebF tracks "dirty" nodes to recalculate only affected subtrees (similar to React's reconciliation), and batches DOM updates to process them in the next frame, preventing layout thrashing.
-
-### Performance Benefits
-
-- **Native-Like Speed** - No WebView overhead, runs directly on Flutter's rendering pipeline
-- **Fast Startup** - Sub-100ms cold starts with lightweight runtime
-- **Optimized Memory** - Efficient resource usage with shared rendering context
-- **Smooth Animations** - 60fps/120fps performance across all platforms
-- **Dedicated Thread** - JavaScript runs in a dedicated thread without blocking UI
-
-## Getting Started
-
-### For Web Developers
-
-Get started quickly using **WebF Go** - a preview app that lets you test WebF applications on real devices without building a custom Flutter app.
-
-#### Prerequisites
-- Node.js (latest LTS recommended)
-
-#### Quick Start
-
-**1. Download WebF Go**
-   - **Desktop**: Download from [https://openwebf.com/en/go](https://openwebf.com/en/go) (macOS, Windows, or Linux)
-   - **Mobile**: Download from App Store (iOS) or Google Play (Android)
-
-**2. Create Your Project**
-   ```bash
-   npm create vite@latest
-   ```
-   Select your preferred framework (React, Vue, Svelte, etc.) when prompted.
-
-**3. Start Development Server**
-   ```bash
-   cd <your-project-name>
-   npm install
-   npm run dev
-   ```
-
-**4. Load in WebF Go**
-   - Copy the Network URL from your terminal (typically `http://localhost:5173`)
-   - Paste it into the WebF Go app's input field
-   - Tap "Go"
-
-Your application will render in the native WebF environment with hot-reload support for instant code changes!
-
-### For Flutter Developers
-
-Add WebF to your existing Flutter app to enable web content rendering.
-
-#### Installation
-
-1. Add WebF dependency to your `pubspec.yaml`:
-   ```yaml
-   dependencies:
-     webf: ^0.23.10  # Check pub.dev for latest version
-   ```
-
-2. Run `flutter pub get`
-
-#### Basic Setup
+## Quick start
 
 ```dart
-import 'package:webf/webf.dart';
-
-void main() {
-  // Initialize WebF controller manager
-  WebFControllerManager.instance.initialize(
-    WebFControllerManagerConfig(
-      maxAliveInstances: 5,
-      maxAttachedInstances: 3,
-    ),
-  );
-
-  // Add a controller with prerendering
-  WebFControllerManager.instance.addWithPrerendering(
-    name: 'home',
-    createController: () => WebFController(),
-    bundle: WebFBundle.fromUrl('https://example.com/'),
-  );
-
-  runApp(MyApp());
-}
+import 'package:flutter/material.dart';
+import 'package:flutter_silkweb/flutter_silkweb.dart';
 
 class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      home: Scaffold(
-        body: WebF.fromControllerName(
-          controllerName: 'home',
-          loadingWidget: CircularProgressIndicator(),
-        ),
+      home: WebF(
+        bundle: WebFBundle.fromUrl('https://your-react-app.com/'),
+        viewportWidth: MediaQuery.of(context).size.width,
+        viewportHeight: MediaQuery.of(context).size.height,
       ),
     );
   }
 }
 ```
 
-#### Loading Content
+That's it. Your existing React / Vue / Vite output runs unmodified — no
+inline-style rewrites, no Tailwind escape hatches.
 
-WebF supports multiple content sources:
-- **Remote URLs:** `WebFBundle.fromUrl('https://example.com/')`
-- **Local assets:** `WebFBundle.fromUrl('assets:///assets/web/index.html')`
-- **Development servers:** `WebFBundle.fromUrl('http://localhost:3000/')`
-- **Inline HTML:** `WebFBundle.fromContent('<!DOCTYPE html>...')`
+## Mini-app permissions
 
-## Documentation
+Sandbox what a JS bundle can do at runtime. Three layers, checked in order:
 
-📚 **[Complete Documentation](https://openwebf.com/en/docs)** - Learn WebF architecture, developer guides, and Flutter integration
+1. **Static allowlist** — grants the manifest declared
+2. **Static denylist** — host hard-blocks regardless of the resolver
+3. **Async resolver** — prompt the user, hit your auth server, etc.
 
-- **[Learn WebF](https://openwebf.com/en/docs/learn-webf)** - Overview, architecture, and key features
-- **[Developer Guide](https://openwebf.com/en/docs/developer-guide)** - Getting started, frameworks, CSS, debugging, deployment
-- **[Add WebF To Flutter](https://openwebf.com/en/docs/add-webf-to-flutter)** - Integration guide for Flutter engineers
+```dart
+final controller = WebFController(
+  context,
+  bundle: WebFBundle.fromUrl('https://untrusted-app.com/'),
+  permissionPolicy: WebFPermissionPolicy(
+    granted: { WebFPermission.network },     // baseline trust
+    denied:  { WebFPermission.fileSystem },  // hard block
+    onRequest: (perm) async {
+      // Show a dialog, query the OS, whatever.
+      return await showDialog<bool>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: Text('Allow ${perm.id}?'),
+          actions: [
+            TextButton(child: Text('Deny'),  onPressed: () => Navigator.pop(_, false)),
+            TextButton(child: Text('Allow'), onPressed: () => Navigator.pop(_, true)),
+          ],
+        ),
+      ) ?? false;
+    },
+  ),
+);
+```
 
-## Use Cases
+### Manifest-driven (recommended for distributed mini-apps)
 
-WebF is ideal for:
+Each bundle ships a `manifest.json`:
 
-- **✅ Content-Heavy Applications** - Apps with dynamic, frequently-updated content
-- **✅ Rapid Prototyping** - Leverage web development speed for fast iteration
-- **✅ Cross-Platform Apps** - Single codebase for iOS, Android, and desktop
-- **✅ Hybrid Native-Web UIs** - Mix Flutter widgets with web content seamlessly
-- **✅ Over-the-Air Updates** - Deploy features and fixes without app store review delays
+```json
+{
+  "name": "Photo Editor",
+  "version": "1.2.0",
+  "entry": "/index.html",
+  "permissions": ["camera", "clipboard:read", "clipboard:write", "network"]
+}
+```
 
-## Sponsors
+Host parses and uses it as the policy:
 
+```dart
+final manifest = WebFManifest.fromJson(await rootBundle.loadString('manifest.json'));
+final policy = manifest.buildPolicy(
+  alsoDeny: { WebFPermission.fileSystem },          // override regardless
+  onRequest: (perm) async => await promptUser(perm), // for anything not in manifest
+);
+final controller = WebFController(context, bundle: ..., permissionPolicy: policy);
+```
 
-<p style="font-size:21px; color:black;">
-  <a href="https://www.testmu.ai" target="_blank">
-    <img style="vertical-align: middle;" width="250" alt="black-logo" src="https://github.com/user-attachments/assets/45b689e1-e1f9-45c2-896b-1097e6220617" />
-  </a>
-</p>
+### Available permissions
+
+| Permission | Manifest id | Gates |
+|---|---|---|
+| `network` | `network` | `fetch`, `XHR`, `EventSource`, `WebSocket` |
+| `clipboardRead` | `clipboard:read` | `navigator.clipboard.readText()` |
+| `clipboardWrite` | `clipboard:write` | `navigator.clipboard.writeText()` |
+| `geolocation` | `geolocation` | `navigator.geolocation.*` |
+| `camera` | `camera` | `getUserMedia({video})`, `<webf-camera>` |
+| `microphone` | `microphone` | `getUserMedia({audio})` |
+| `notifications` | `notifications` | `Notification`, push channel |
+| `storage` | `storage` | `localStorage`, `sessionStorage`, IndexedDB |
+| `fileSystem` | `file-system` | File picker / FS modules |
+| `hostState` | `host-state` | `WebFReactiveBridge` writes |
+| `hardwareAccess` | `hardware-access` | Bluetooth, NFC, USB plugins |
+| `deviceInfo` | `device-info` | UA hints, sensors |
+| `systemControl` | `system-control` | `vibrate`, `wakeLock`, etc. |
+
+When a JS call hits a denied permission, it surfaces as a
+`NotAllowedError` — the same shape browsers throw, so existing
+`try { ... } catch (NotAllowedError e)` paths in your React/Vue code work
+unchanged.
+
+## Reactive bridge
+
+Forget hand-rolling `postMessage`. Two-way typed state in two lines:
+
+### Dart side
+
+```dart
+final counter = ValueNotifier<int>(0);
+final reactive = WebFReactiveBridge(controller);
+reactive.expose('counter', counter);                    // Dart → JS
+reactive.observe<String>('userInput').listen(print);    // JS → Dart
+```
+
+### JS side (after loading `reactive_channel.js`)
+
+```js
+// Read Dart-side state
+const v = await webf.reactive.get('counter');
+
+// Subscribe to changes
+const unsub = webf.reactive.observe('counter').subscribe(v => {
+  setCounter(v);   // works in any framework
+});
+
+// Push to Dart
+webf.reactive.set('counter', v + 1);
+
+// Expose JS state to Dart
+webf.reactive.expose('userInput', () => store.input, v => store.input = v);
+```
+
+Works directly with React `useEffect`, Vue `onMounted`, Solid `createEffect`.
+No serialization wrappers, no `JSON.stringify` boilerplate.
+
+## What we improved over the prior art
+
+`flutter_silkweb` started as a fork of [openwebf/webf](https://github.com/openwebf/webf)
+— huge respect to that team for the rendering engine and Dart bindings. We
+focused on production-grade smoothness and the developer experience around
+embedding modern frontend stacks.
+
+Highlights:
+
+- **Layout-read cache** — `offsetWidth/Height` etc. cached per element while
+  no DOM mutation has happened, so React's measurement phase no longer blocks
+  the JS thread N times per render.
+- **Idle frame loop** doesn't wake the JS thread or force vsync when nothing
+  is pending.
+- **Sync fast-path event dispatch** — DOM events skip a microtask hop per
+  handler when the listener is synchronous.
+- **CSS gaps closed for Tailwind**: `min()`/`max()` calc, `backdrop-filter`,
+  `::placeholder` + `::selection`, `animationiteration` event, full
+  `@supports`, expanded `@media` (orientation/hover/pointer/reduced-motion).
+- **Crash hardening** — null-unwraps in animation/transition timing, NaN/Inf
+  transform matrices, unknown at-rules.
+- **Bridge correctness** — closes a `dart_method_name` leak, plugs a
+  use-after-dispose race in C++, surfaces sync timeouts instead of swallowing
+  `std::future_error`.
+- **Permission system** (this page) — sandbox untrusted bundles.
+- **Reactive bridge** (this page) — typed Stream / `ValueListenable` over
+  the existing MethodChannel.
+
+Full file:line change log: [OPTIMIZATION_NOTES.md](OPTIMIZATION_NOTES.md).
+
+## Status & limitations
+
+- ✅ React (incl. measurement-heavy reconciliation), Vue 3, Solid, vanilla.
+- ✅ Tailwind CSS v3.x (utilities + custom properties).
+- ✅ Touch / mouse / keyboard, async event handlers.
+- ✅ CSS animations, transitions, transforms (including 3D).
+- ⚠️ `@container` (container queries) not yet implemented — next phase.
+- ⚠️ `getBoundingClientRect` / `getClientRects` not yet in the layout cache.
+- ⚠️ `::selection { color }` foreground colour cannot be applied (Flutter
+  TextField has no per-character selected-text style hook).
+- ⚠️ `aspect-ratio` doesn't resolve when both axes are `auto` inside an
+  indefinite container.
+- ⚠️ No real-device benchmarks merged yet — claims are based on
+  architectural analysis. Please file issues with before/after frame
+  timings.
+
+## Versioning
+
+Pin to a SHA in production:
+
+```yaml
+flutter_silkweb:
+  git:
+    url: https://github.com/sin-tag/flutter_silkweb.git
+    ref: <commit-sha>
+    path: webf
+```
+
+Or to a tag once we cut releases:
+
+```yaml
+ref: v0.1.0
+```
 
 ## License
 
-WebF is dual-licensed to provide flexibility for different use cases:
+[GPL-3.0-only](LICENSE), inherited from the upstream engine. **GPL is
+contagious** — apps that depend on `flutter_silkweb` must comply with GPL
+themselves. If your app is closed-source, contact the upstream for a
+commercial / Enterprise license.
 
-### Open Source License (GPL-3.0)
+## Credits
 
-WebF is licensed under the **GNU General Public License version 3 (GPL-3.0)** with the OpenWebF Enterprise Exception.
-
-**What this means:**
-- ✅ **Free for open-source projects** - Use WebF freely in open-source applications under GPL-3.0 terms
-- ✅ **Source code available** - Full access to the source code on [GitHub](https://github.com/openwebf/webf)
-- ✅ **Community contributions welcome** - Join the community and contribute to the project
-- ✅ **Package developers exemption** - Published open-source packages (npm/Flutter packages) that depend on WebF can use any license
-- ⚠️ **GPL requirements apply to applications** - Applications using WebF must comply with GPL-3.0 terms (open source your application code)
-
-### Enterprise License
-
-For commercial applications that cannot comply with GPL-3.0 requirements, we offer the **OpenWebF Enterprise License**:
-
-- ✅ **Commercial use** - Use WebF in closed-source commercial applications
-- ✅ **No GPL restrictions** - Freedom from GPL copyleft requirements
-- ✅ **Enterprise support** - Priority technical support and assistance
-- ✅ **Additional features** - Access to enterprise-only features and early releases
-
-**Enterprise Installation:**
-```yaml
-dependencies:
-  webf: ^0.23.10  # Enterprise version available on pub.dev
-```
-
-### Choosing the Right License
-
-| Use Case | Recommended License | Notes |
-|----------|---------------------|-------|
-| Open-source applications | GPL-3.0 (Open Source) | Your app must be GPL-3.0 compatible |
-| Published npm/Flutter packages | Apache-2.0 or MIT | Your package can use permissive licenses |
-| Internal/non-distributed apps | GPL-3.0 (Open Source) | No distribution = no GPL obligations |
-| Commercial closed-source apps | Enterprise License | Required for proprietary applications |
-| Apps distributed via app stores | Enterprise License | Required unless app is open source |
-| Educational/research projects | GPL-3.0 (Open Source) | Free for academic use |
-
-### Contact
-
-For licensing questions or to obtain an Enterprise License:
-- **Email:** support@openwebf.com
-- **Website:** [https://openwebf.com](https://openwebf.com)
-- **Software Agreement:** [https://openwebf.com/en/software-agreement](https://openwebf.com/en/software-agreement)
-
-See the [LICENSE](LICENSE) file for the full GPL-3.0 license text and OpenWebF Enterprise Exception.
-
-## Community & Support
-
-- **Discord:** [Join our community](https://discord.gg/DvUBtXZ5rK)
-- **Twitter/X:** [@openwebf](https://x.com/openwebf)
-- **GitHub:** [github.com/openwebf/webf](https://github.com/openwebf/webf)
-- **Email:** support@openwebf.com
+- The DOM/CSS engine, Dart bindings, and C++ bridge come from
+  [openwebf/webf](https://github.com/openwebf/webf) and earlier
+  [Kraken](https://github.com/openkraken/kraken). This fork only adds the
+  optimisations and APIs listed above.
+- QuickJS for the embedded JS runtime.
+- Flutter, Skia, Dart team for the underlying platform.
