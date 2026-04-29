@@ -100,15 +100,19 @@ void UICommandBuffer::updateFlags(UICommand command) {
   UICommandKind type = GetKindFromUICommand(command);
   kind_flag = kind_flag | type;
   // Bump the layout-mutation epoch on commands that can change box geometry.
-  // BindingObject's layout-read cache short-circuits offsetWidth/Height/
-  // clientWidth/Height queries when the epoch is unchanged since the last
-  // round-trip — eliminates the PostToDartSync overhead during React's
-  // measurement phase, which queries the same elements many times per render.
+  // Defensive: skip during context tear-down — addCommand() guards on the
+  // same condition for the same reason (context_ can already be partway
+  // destroyed when commands fire from finalizers on a re-open).
   constexpr uint32_t kLayoutAffecting = static_cast<uint32_t>(UICommandKind::kNodeMutation) |
                                         static_cast<uint32_t>(UICommandKind::kStyleUpdate) |
                                         static_cast<uint32_t>(UICommandKind::kAttributeUpdate) |
                                         static_cast<uint32_t>(UICommandKind::kNodeCreation);
   if ((static_cast<uint32_t>(type) & kLayoutAffecting) != 0) {
+    if (UNLIKELY(context_ == nullptr ||
+                 !context_->dartIsolateContext() ||
+                 !context_->dartIsolateContext()->valid())) {
+      return;
+    }
     context_->IncrementLayoutEpoch();
   }
 }

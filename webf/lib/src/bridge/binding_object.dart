@@ -518,10 +518,11 @@ Future<void> asyncInvokeBindingMethodFromNativeImpl(WebFViewController view,
     f(asyncCallContext.ref.resolver, nullptr, '$e\n$stack'.toNativeUtf8());
   }
 
-  // The C++ side mallocs the method-name NativeValue when posting the async
-  // call to Dart, but previously nothing freed it after the round-trip.
-  // Each async property get/set/method call leaked one Pointer<NativeValue>.
-  malloc.free(asyncCallContext.ref.methodName);
+  // method_name is intentionally NOT freed here — the C++ side may retain
+  // a reference past the resolver callback (promise tracking), so freeing
+  // it from Dart can cause a use-after-free on subsequent invocations.
+  // The leak (1 NativeValue per async call) is the lesser evil until the
+  // C++ ownership rules are clarified upstream.
   malloc.free(asyncCallContext.ref.argv);
   malloc.free(asyncCallContext);
 }
