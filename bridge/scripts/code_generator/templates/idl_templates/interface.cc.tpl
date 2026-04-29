@@ -1,0 +1,328 @@
+<% if (object.construct) { %>
+JSValue QJS<%= className %>::ConstructorCallback(JSContext* ctx, JSValue func_obj, JSValue this_val, int argc, JSValue* argv, int flags) {
+  <%= generateFunctionBody(blob, object.construct, {isConstructor: true}) %>
+}
+<% } %>
+
+<% if (object.indexedProp) { %>
+  bool QJS<%= className %>::PropertyCheckerCallback(JSContext* ctx, JSValueConst obj, JSAtom key) {
+    auto* self = toScriptWrappable<<% if (className.startsWith('Legacy')) { %>legacy::<% } %><%= className %>>(obj);
+    ExceptionState exception_state;
+    ExecutingContext* context = ExecutingContext::From(ctx);
+    if (!context->IsContextValid()) return false;
+    auto* wrapper_type_info = DOMTokenList::GetStaticWrapperTypeInfo();
+    MemberMutationScope scope{context};
+    JSValue prototype = context->contextData()->prototypeForType(wrapper_type_info);
+    if (JS_HasProperty(ctx, prototype, key)) return true;
+    bool result = self->NamedPropertyQuery(AtomicString(ctx, key), exception_state);
+    if (UNLIKELY(exception_state.HasException())) {
+      return false;
+    }
+    return result;
+  }
+  int QJS<%= className %>::PropertyEnumerateCallback(JSContext* ctx, JSPropertyEnum** ptab, uint32_t* plen, JSValue obj) {
+    auto* self = toScriptWrappable<<% if (className.startsWith('Legacy')) { %>legacy::<% } %><%= className %>>(obj);
+    ExceptionState exception_state;
+    ExecutingContext* context = ExecutingContext::From(ctx);
+    if (!context->IsContextValid()) return 0;
+    MemberMutationScope scope{context};
+    std::vector<AtomicString> props;
+    self->NamedPropertyEnumerator(props, exception_state);
+    auto size = props.size() == 0 ? 1 : props.size();
+    JSPropertyEnum* tabs = static_cast<JSPropertyEnum *>(js_malloc(ctx, sizeof(tabs[0]) * size));
+    for(int i = 0; i < props.size(); i ++) {
+      tabs[i].atom = JS_DupAtom(ctx, context->stringCache()->GetJSAtomFromString(ctx, props[i].Impl()));
+      tabs[i].is_enumerable = true;
+    }
+
+    *plen = props.size();
+    *ptab = tabs;
+    return 0;
+  }
+
+  <% if (object.indexedProp.indexKeyType == 'number') { %>
+  JSValue QJS<%= className %>::IndexedPropertyGetterCallback(JSContext* ctx, JSValue obj, uint32_t index) {
+    ExceptionState exception_state;
+    ExecutingContext* context = ExecutingContext::From(ctx);
+    if (!context->IsContextValid()) return JS_NULL;
+    MemberMutationScope scope{context};
+    auto* self = toScriptWrappable<<% if (className.startsWith('Legacy')) { %>legacy::<% } %><%= className %>>(obj);
+    if (index >= self->length()) {
+      return JS_UNDEFINED;
+    }
+    <%= generateCoreTypeValue(object.indexedProp.type) %> result = self->item(index, exception_state);
+    if (UNLIKELY(exception_state.HasException())) {
+      return exception_state.ToQuickJS();
+    }
+
+    return Converter<<%= generateIDLTypeConverter(object.indexedProp.type, object.indexedProp.optional) %>>::ToValue(ctx, result);
+  };
+  <% } else { %>
+  JSValue QJS<%= className %>::StringPropertyGetterCallback(JSContext* ctx, JSValue obj, JSAtom key) {
+    auto* self = toScriptWrappable<<% if (className.startsWith('Legacy')) { %>legacy::<% } %><%= className %>>(obj);
+    ExceptionState exception_state;
+    ExecutingContext* context = ExecutingContext::From(ctx);
+    if (!context->IsContextValid()) return JS_NULL;
+    MemberMutationScope scope{context};
+    ${generateCoreTypeValue(object.indexedProp.type)} result = self->item(AtomicString(ctx, key), exception_state);
+    if (UNLIKELY(exception_state.HasException())) {
+      return exception_state.ToQuickJS();
+    }
+    return Converter<<%= generateIDLTypeConverter(object.indexedProp.type, object.indexedProp.optional) %>>::ToValue(ctx, result);
+  };
+  <% } %>
+  <% if (!object.indexedProp.readonly) { %>
+    <% if (object.indexedProp.indexKeyType == 'number') { %>
+  bool QJS<%= className %>::IndexedPropertySetterCallback(JSContext* ctx, JSValueConst obj, uint32_t index, JSValueConst value) {
+    auto* self = toScriptWrappable<<% if (className.startsWith('Legacy')) { %>legacy::<% } %><%= className %>>(obj);
+    ExceptionState exception_state;
+    ExecutingContext* context = ExecutingContext::From(ctx);
+    if (!context->IsContextValid()) return false;
+    MemberMutationScope scope{context};
+    auto&& v = Converter<<%= generateIDLTypeConverter(object.indexedProp.type, object.indexedProp.optional) %>>::FromValue(ctx, value, exception_state);
+    if (UNLIKELY(exception_state.HasException())) {
+      return false;
+    }
+    bool success = self->SetItem(index, v, exception_state);
+    if (UNLIKELY(exception_state.HasException())) {
+      return false;
+    }
+    return success;
+  };
+    <% } else { %>
+  bool QJS<%= className %>::StringPropertySetterCallback(JSContext* ctx, JSValueConst obj, JSAtom key, JSValueConst value) {
+    auto* self = toScriptWrappable<<% if (className.startsWith('Legacy')) { %>legacy::<% } %><%= className %>>(obj);
+    ExceptionState exception_state;
+    ExecutingContext* context = ExecutingContext::From(ctx);
+    if (!context->IsContextValid()) return false;
+    MemberMutationScope scope{context};
+    auto&& v = Converter<<%= generateIDLTypeConverter(object.indexedProp.type, object.indexedProp.optional) %>>::FromValue(ctx, value, exception_state);
+    if (UNLIKELY(exception_state.HasException())) {
+      return false;
+    }
+    bool success = self->SetItem(AtomicString(ctx, key), v, exception_state);
+    if (UNLIKELY(exception_state.HasException())) {
+      return false;
+    }
+    return success;
+  };
+    <% } %>
+     bool QJS<%= className %>::StringPropertyDeleterCallback(JSContext* ctx, JSValueConst obj, JSAtom key) {
+      auto* self = toScriptWrappable<<% if (className.startsWith('Legacy')) { %>legacy::<% } %><%= className %>>(obj);
+      ExceptionState exception_state;
+      ExecutingContext* context = ExecutingContext::From(ctx);
+      if (!context->IsContextValid()) return false;
+      MemberMutationScope scope{context};
+      if (UNLIKELY(exception_state.HasException())) {
+        return false;
+      }
+      bool success = self->DeleteItem(AtomicString(ctx, key), exception_state);
+      if (UNLIKELY(exception_state.HasException())) {
+        return false;
+      }
+      return success;
+    };
+  <% } %>
+<% } %>
+
+<% _.forEach(filtedMethods, function(method, index) { %>
+
+  <% if (overloadMethods[method.name] && overloadMethods[method.name].length > 1) { %>
+    <% _.forEach(overloadMethods[method.name], function(overloadMethod, index) { %>
+static JSValue <%= overloadMethod.name %>_overload_<%= index %>(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
+        <%= generateFunctionBody(blob, overloadMethod, {isInstanceMethod: true}) %>
+      }
+    <% }); %>
+    static JSValue qjs_<%= method.name %>(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
+      <%= generateOverLoadSwitchBody(overloadMethods[method.name]) %>
+    }
+  <% } else if (method.returnTypeMode && method.returnTypeMode.staticMethod) { %>
+  static JSValue qjs_<%= method.name %>(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
+    <%= generateFunctionBody(blob, method, {isInstanceMethod: false}) %>
+  }
+  <% } else { %>
+  static JSValue qjs_<%= method.name %>(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
+    <%= generateFunctionBody(blob, method, {isInstanceMethod: true}) %>
+  }
+  <% } %>
+
+<% }) %>
+
+<% _.forEach(object.props, function(prop, index) { %>
+static JSValue <%= prop.name %>AttributeGetCallback(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
+<% if (isJSArrayBuiltInProps(prop)) { %>
+  JSValue classProto = JS_GetClassProto(ctx, JS_CLASS_ARRAY);
+  <% if (prop.isSymbol) { %>
+  JSValue result = JS_GetProperty(ctx, classProto, JS_ATOM_<%= prop.name %>);
+  JS_FreeValue(ctx, classProto);
+  return result;
+  <% } else { %>
+  JSValue result = JS_GetPropertyStr(ctx, classProto, "<%= prop.name %>");
+  JS_FreeValue(ctx, classProto);
+  return result;
+  <% } %>
+
+}
+<% } else { %>
+  auto* <%= blob.filename %> = toScriptWrappable<<% if (className.startsWith('Legacy')) { %>legacy::<% } %><%= className %>>(this_val);
+  if (<%= blob.filename %> == nullptr) return JS_NULL;
+  assert(<%= blob.filename %> != nullptr);
+  ExecutingContext* context = ExecutingContext::From(ctx);
+  if (!context->IsContextValid()) return JS_NULL;
+  MemberMutationScope scope{context};
+
+  <% if (className === 'Document' && prop.name === 'styleSheets') { %>
+  // CSSOM: `document.styleSheets` is backed by Blink CSS when blink is enabled,
+  // otherwise delegated to the Dart CSS engine via the binding bridge.
+  if (!context->isBlinkEnabled()) {
+    ExceptionState exception_state;
+    static thread_local const AtomicString kStyleSheets =
+        AtomicString::CreateFromUTF8("styleSheets", sizeof("styleSheets") - 1);
+    NativeValue dart_result =
+        <%= blob.filename %>->GetBindingProperty(kStyleSheets, FlushUICommandReason::kDependentsOnElement, exception_state);
+    if (UNLIKELY(exception_state.HasException())) {
+      return exception_state.ToQuickJS();
+    }
+    ScriptValue script_value(ctx, dart_result);
+    return JS_DupValue(ctx, script_value.QJSValue());
+  }
+  <% } %>
+
+  <% if ((className === 'HTMLStyleElement' || className === 'HTMLLinkElement') && prop.name === 'sheet') { %>
+  // CSSOM: `HTMLStyleElement.sheet` / `HTMLLinkElement.sheet` are backed by Blink CSS
+  // when blink is enabled, otherwise delegated to the Dart CSS engine via the binding bridge.
+  if (!context->isBlinkEnabled()) {
+    ExceptionState exception_state;
+    static thread_local const AtomicString kSheet = AtomicString::CreateFromUTF8("sheet", sizeof("sheet") - 1);
+    NativeValue dart_result =
+        <%= blob.filename %>->GetBindingProperty(kSheet, FlushUICommandReason::kDependentsOnElement, exception_state);
+    if (UNLIKELY(exception_state.HasException())) {
+      return exception_state.ToQuickJS();
+    }
+    ScriptValue script_value(ctx, dart_result);
+    return JS_DupValue(ctx, script_value.QJSValue());
+  }
+  <% } %>
+
+  <% if (prop.typeMode && prop.typeMode.dartImpl && prop.typeMode.supportAsync) { %>
+  ExceptionState exception_state;
+  ScriptPromise promise = <%= blob.filename %>->GetBindingPropertyAsync(binding_call_methods::k<%= prop.name.split('_async')[0] %>, exception_state);
+  if (UNLIKELY(exception_state.HasException())) {
+    return exception_state.ToQuickJS();
+  }
+  auto result = Converter<IDLPromise>::ToValue(ctx, promise);
+  return result;
+  <% } else { %>
+  <% if (prop.typeMode && prop.typeMode.dartImpl && !prop.typeMode.supportAsync) { %>
+  ExceptionState exception_state;
+  <% if (isTypeNeedAllocate(prop.type)) { %>
+  typename <%= generateNativeValueTypeConverter(prop.type) %>::ImplType v = NativeValueConverter<<%= generateNativeValueTypeConverter(prop.type) %>>::FromNativeValue(ctx, <%= blob.filename %>->GetBindingProperty(binding_call_methods::k<%= prop.name %>, FlushUICommandReason::kDependentsOnElement  <%= prop.typeMode.layoutDependent ? '| FlushUICommandReason::kDependentsOnLayout' : '' %>, exception_state));
+  <% } else { %>
+  typename <%= generateNativeValueTypeConverter(prop.type) %>::ImplType v = NativeValueConverter<<%= generateNativeValueTypeConverter(prop.type) %>>::FromNativeValue(<%= blob.filename %>->GetBindingProperty(binding_call_methods::k<%= prop.name %>, FlushUICommandReason::kDependentsOnElement  <%= prop.typeMode.layoutDependent ? '| FlushUICommandReason::kDependentsOnLayout' : '' %>, exception_state));
+  <% } %>
+  if (UNLIKELY(exception_state.HasException())) {
+    return exception_state.ToQuickJS();
+  }
+  auto result = Converter<<%= generateIDLTypeConverter(prop.type, prop.optional) %>>::ToValue(ctx, v);
+  return result;
+  <% } else if (prop.typeMode && prop.typeMode.static) { %>
+  auto result = Converter<<%= generateIDLTypeConverter(prop.type, prop.optional) %>>::ToValue(ctx, <% if (className.startsWith('Legacy')) { %>legacy::<% } %><%= className %>::<%= prop.name %>);
+  return result;
+  <% } else if (prop.typeMode && prop.typeMode.staticMethod) { %>
+  auto result = Converter<<%= generateIDLTypeConverter(prop.type, prop.optional) %>>::ToValue(ctx, <% if (className.startsWith('Legacy')) { %>legacy::<% } %><%= className %>::<%= prop.name %>());
+  return result;
+  <% } else { %>
+  <% if(prop.async_type) { %>
+  ExceptionState exception_state;
+  <% } %>
+  auto result = Converter<<%= generateIDLTypeConverter(prop.async_type ? prop.async_type : prop.type, prop.optional) %>>::ToValue(ctx, <%= blob.filename %>-><%= prop.name %>(<%= prop.async_type ? 'exception_state' : '' %>));
+  return result;
+  <% } %>
+  <% if(prop.async_type) { %>
+  if (exception_state.HasException()) {
+    return exception_state.ToQuickJS();
+  }
+  <% } %>
+<% } %>
+}
+<% if (!prop.readonly) { %>
+static JSValue <%= prop.name %>AttributeSetCallback(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
+ auto* <%= blob.filename %> = toScriptWrappable<<% if (className.startsWith('Legacy')) { %>legacy::<% } %><%= className %>>(this_val);
+  ExceptionState exception_state;
+  ExecutingContext* context = ExecutingContext::From(ctx);
+  if (!context->IsContextValid()) return JS_NULL;
+  MemberMutationScope scope{context};
+  auto&& v = Converter<<%= generateIDLTypeConverter(prop.type, prop.optional) %>>::FromValue(ctx, argv[0], exception_state);
+  if (exception_state.HasException()) {
+    return exception_state.ToQuickJS();
+  }
+  <% if (prop.typeMode && prop.typeMode.dartImpl && prop.typeMode.supportAsync) { %>
+  <%= blob.filename %>->SetBindingPropertyAsync(binding_call_methods::k<%= prop.name.split('_async')[0] %>, NativeValueConverter<<%= generateNativeValueTypeConverter(prop.type) %>>::ToNativeValue(<% if (isDOMStringType(prop.type)) { %>ctx, <% } %>v),exception_state);
+  if (UNLIKELY(exception_state.HasException())) {
+    return exception_state.ToQuickJS();
+  }
+
+  return JS_DupValue(ctx, argv[0]);
+}
+  <% } else if (prop.typeMode && prop.typeMode.supportAsync)  { %>
+  <%= blob.filename %>->set<%= prop.name[0].toUpperCase() + prop.name.slice(1) %>(v, exception_state);
+  if (exception_state.HasException()) {
+    return exception_state.ToQuickJS();
+  }
+  return JS_DupValue(ctx, argv[0]);
+}
+  <% } else { %>
+  <% if (prop.typeMode && prop.typeMode.dartImpl && !prop.typeMode.supportAsync) { %>
+  <%= blob.filename %>->SetBindingProperty(binding_call_methods::k<%= prop.name %>, NativeValueConverter<<%= generateNativeValueTypeConverter(prop.type) %>>::ToNativeValue(<% if (isDOMStringType(prop.type)) { %>ctx, <% } %>v),exception_state);
+  <% } else {%>
+  <%= blob.filename %>->set<%= prop.name[0].toUpperCase() + prop.name.slice(1) %>(v, exception_state);
+  <% } %>
+  if (exception_state.HasException()) {
+    return exception_state.ToQuickJS();
+  }
+
+  return JS_DupValue(ctx, argv[0]);
+}
+<% } %>
+<% } %>
+<% } %>
+<% }); %>
+
+
+<% if (mixinObjects) { %>
+<% mixinObjects.forEach(function(object) { %>
+
+<% _.forEach(object.props, function(prop, index) { %>
+static JSValue <%= prop.name %>AttributeGetCallback(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
+  auto* <%= blob.filename %> = toScriptWrappable<<% if (className.startsWith('Legacy')) { %>legacy::<% } %><%= className %>>(this_val);
+  if (<%= blob.filename %> == nullptr) return JS_NULL;
+  ExecutingContext* context = ExecutingContext::From(ctx);
+  if (!context->IsContextValid()) return JS_NULL;
+  MemberMutationScope scope{context};
+  return Converter<<%= generateIDLTypeConverter(prop.type, prop.optional) %>>::ToValue(ctx, <%= object.name %>::<%= prop.name %>(*<%= blob.filename %>));
+}
+<% if (!prop.readonly) { %>
+static JSValue <%= prop.name %>AttributeSetCallback(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
+ auto* <%= blob.filename %> = toScriptWrappable<<% if (className.startsWith('Legacy')) { %>legacy::<% } %><%= className %>>(this_val);
+  ExceptionState exception_state;
+  ExecutingContext* context = ExecutingContext::From(ctx);
+  if (!context->IsContextValid()) return JS_NULL;
+  MemberMutationScope scope{context};
+  auto&& v = Converter<<%= generateIDLTypeConverter(prop.async_type ? prop.async_type : prop.type, prop.optional) %>>::FromValue(ctx, argv[0], exception_state);
+  if (exception_state.HasException()) {
+    return exception_state.ToQuickJS();
+  }
+
+  <%= object.name %>::set<%= prop.name[0].toUpperCase() + prop.name.slice(1) %>(*<%= blob.filename %>, v, exception_state);
+  if (exception_state.HasException()) {
+    return exception_state.ToQuickJS();
+  }
+
+  return JS_DupValue(ctx, argv[0]);
+}
+<% } %>
+<% }); %>
+
+
+<% }); %>
+<% } %>

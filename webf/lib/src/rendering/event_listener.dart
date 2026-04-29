@@ -1,0 +1,287 @@
+/*
+ * Copyright (C) 2024-present The OpenWebF Company. All rights reserved.
+ * Licensed under GNU GPL with Enterprise exception.
+ */
+/*
+ * Copyright (C) 2022-2024 The WebF authors. All rights reserved.
+ */
+
+import 'package:flutter/gestures.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter_silkweb/css.dart';
+import 'package:flutter_silkweb/dom.dart';
+import 'package:flutter_silkweb/launcher.dart';
+import 'package:flutter_silkweb/gesture.dart';
+import 'package:flutter_silkweb/rendering.dart' hide RenderBoxContainerDefaultsMixin;
+
+bool _canReuseProxyChildLayout(RenderBox? child, BoxConstraints constraints) {
+  return canReuseStableProxyChildLayout(child, constraints);
+}
+
+class RenderPortalsParentData extends RenderLayoutParentData {}
+
+class RenderEventListener extends RenderBoxModel
+    with RenderObjectWithChildMixin<RenderBox>, RenderProxyBoxMixin<RenderBox> {
+  RenderEventListener(
+      {required CSSRenderStyle renderStyle,
+      required this.controller,
+      required bool hasEvent})
+      : _enableEvent = hasEvent,
+        super(renderStyle: renderStyle) {
+    if (hasEvent) {
+      _gestureDispatcher = GestureDispatcher(renderStyle.target);
+    }
+  }
+
+  bool _enableEvent = false;
+
+  bool get enableEvent => _enableEvent;
+
+  void disabledEventCapture() {
+    _enableEvent = false;
+    _gestureDispatcher = null;
+  }
+
+  void enableEventCapture() {
+    _enableEvent = true;
+    _gestureDispatcher = GestureDispatcher(renderStyle.target);
+  }
+
+  WebFController controller;
+
+  GestureDispatcher? _gestureDispatcher;
+
+  GestureDispatcher? get gestureDispatcher => _gestureDispatcher;
+
+  BoxConstraints? _lastLayoutConstraints;
+
+  @override
+  void applyPaintTransform(RenderObject child, Matrix4 transform) {
+    final BoxParentData childParentData = child.parentData as BoxParentData;
+    transform.translate(childParentData.offset.dx, childParentData.offset.dy);
+  }
+
+  @override
+  void markNeedsLayout() {
+    super.markNeedsLayout();
+
+    // Most of the engine still expects RenderEventListener to bubble layout
+    // dirtiness to its parent. Boundary-sensitive callers opt out by
+    // registering an explicit relayout parent via RenderBoxModel.
+    if (relayoutParentOnSizeChange == null &&
+        lastLaidOutAsRelayoutBoundary &&
+        parent != null) {
+      parent!.markNeedsLayout();
+    }
+  }
+
+  @override
+  double? computeDistanceToActualBaseline(TextBaseline baseline) {
+    return computeCssFirstBaseline();
+  }
+
+  @override
+  bool get hasOverrideContentLogicalWidth =>
+      (child as RenderBoxModel).hasOverrideContentLogicalWidth;
+  @override
+  set hasOverrideContentLogicalWidth(value) {
+    (child as RenderBoxModel).hasOverrideContentLogicalWidth = value;
+  }
+
+  @override
+  bool get hasOverrideContentLogicalHeight =>
+      (child as RenderBoxModel).hasOverrideContentLogicalHeight;
+  @override
+  set hasOverrideContentLogicalHeight(value) {
+    (child as RenderBoxModel).hasOverrideContentLogicalHeight = value;
+  }
+
+  @override
+  double get minContentWidth => (child as RenderBoxModel).minContentWidth;
+  @override
+  double get minContentHeight => (child as RenderBoxModel).minContentHeight;
+
+  @override
+  void setupParentData(covariant RenderObject child) {
+    if (child.parentData is! RenderPortalsParentData) {
+      child.parentData = RenderPortalsParentData();
+    }
+  }
+
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties.add(DiagnosticsProperty('hasEvent', _enableEvent));
+  }
+
+  @override
+  double computeMinIntrinsicWidth(double height) {
+    final RenderBox? c = child;
+    if (c == null) return super.computeMinIntrinsicWidth(height);
+    return c.getMinIntrinsicWidth(height);
+  }
+
+  @override
+  double computeMaxIntrinsicWidth(double height) {
+    final RenderBox? c = child;
+    if (c == null) return super.computeMaxIntrinsicWidth(height);
+    return c.getMaxIntrinsicWidth(height);
+  }
+
+  @override
+  double computeMinIntrinsicHeight(double width) {
+    final RenderBox? c = child;
+    if (c == null) return super.computeMinIntrinsicHeight(width);
+    return c.getMinIntrinsicHeight(width);
+  }
+
+  @override
+  double computeMaxIntrinsicHeight(double width) {
+    final RenderBox? c = child;
+    if (c == null) return super.computeMaxIntrinsicHeight(width);
+    return c.getMaxIntrinsicHeight(width);
+  }
+
+  @override
+  bool hitTest(BoxHitTestResult result, {required Offset position}) {
+    if (child == null) {
+      return false;
+    }
+
+    final BoxParentData childParentData = child!.parentData as BoxParentData;
+    bool isHit = result.addWithPaintOffset(
+        offset: childParentData.offset,
+        position: position,
+        hitTest: (result, position) {
+          // addWithPaintOffset is to add an offset to the child node, the calculation itself does not need to bring an offset.
+          if (child!.hitTest(result, position: position)) {
+            result.add(BoxHitTestEntry(this, position));
+            return true;
+          }
+          return false;
+        });
+    return isHit;
+  }
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    final RenderBox? child = this.child;
+    if (child == null) {
+      return;
+    }
+    final BoxParentData childParentData = child.parentData as BoxParentData;
+    context.paintChild(child, offset + childParentData.offset);
+  }
+
+  @override
+  void performLayout() {
+    clearPendingLayoutUpdateForCurrentLayoutPass();
+    updateIntrinsicMeasurementInvalidationForCurrentLayoutPass();
+    final RenderBox? currentChild = child;
+    if (hasSize &&
+        !needsRelayout &&
+        _lastLayoutConstraints == constraints &&
+        _canReuseProxyChildLayout(currentChild, constraints)) {
+      if (currentChild is RenderBoxModel) {
+        scrollableSize = currentChild.scrollableSize;
+      }
+      return;
+    }
+    if (_canReuseProxyChildLayout(currentChild, constraints)) {
+      size = currentChild!.size;
+    } else {
+      size = (currentChild?..layout(constraints, parentUsesSize: true))?.size ??
+          computeSizeForNoChild(constraints);
+    }
+    _lastLayoutConstraints = constraints;
+
+    calculateBaseline();
+    initOverflowLayout(Rect.fromLTRB(0, 0, size.width, size.height),
+        Rect.fromLTRB(0, 0, size.width, size.height));
+
+    // Set the size of scrollable overflow area for Portal.
+    if (currentChild is RenderBoxModel) {
+      scrollableSize = currentChild.scrollableSize;
+    }
+  }
+
+  @override
+  void handleEvent(PointerEvent event, BoxHitTestEntry entry) {
+    super.handleEvent(event, entry);
+
+    final Element target = renderStyle.target;
+    final Document document = controller.view.document;
+    final bool isMousePointer = event.kind == PointerDeviceKind.mouse;
+
+    if (event is PointerDownEvent) {
+      document.notePointerInteraction();
+      document.queueActiveTargetUpdate(event, target);
+    } else if (event is PointerUpEvent || event is PointerCancelEvent) {
+      document.queueActiveTargetUpdate(event, null);
+    } else if (isMousePointer &&
+        (event is PointerHoverEvent ||
+            (event is PointerMoveEvent && event.buttons == 0))) {
+      document.queueHoverTargetUpdate(event, target);
+    } else if (isMousePointer && event is PointerExitEvent) {
+      document.queueHoverTargetClear(event, target);
+    }
+
+    _gestureDispatcher?.handlePointerEvent(event);
+  }
+
+  @override
+  void calculateBaseline() {
+    final RenderBox? currentChild = child;
+    double? childBase;
+
+    if (currentChild is RenderBoxModel) {
+      childBase =
+          currentChild.computeCssFirstBaselineOf(TextBaseline.alphabetic);
+    } else if (currentChild is RenderPositionPlaceholder) {
+      childBase = currentChild.positioned
+          ?.computeCssFirstBaselineOf(TextBaseline.alphabetic);
+    }
+
+    if (childBase == null && currentChild != null) {
+      if (!currentChild.attached) {
+        childBase = currentChild.hasSize ? currentChild.size.height : null;
+      } else {
+        childBase = currentChild.getDistanceToBaseline(TextBaseline.alphabetic);
+      }
+    }
+
+    // Convert child's local baseline to this wrapper's coordinate system.
+    if (childBase != null && currentChild is RenderBox) {
+      final BoxParentData pd = currentChild.parentData as BoxParentData;
+      childBase += pd.offset.dy;
+    }
+
+    setCssBaselines(first: childBase, last: childBase);
+  }
+
+  @override
+  void describeSemanticsConfiguration(SemanticsConfiguration config) {
+    // Intentionally do NOT call super (RenderBoxModel) here.
+    // Applying WebFAccessibility semantics at both this wrapper and the inner
+    // layout box causes duplicate announcements (e.g., label text read twice).
+    // Delegate semantics to the child render box and keep this wrapper
+    // transparent to the semantics tree.
+    config.isSemanticBoundary = false;
+  }
+}
+
+class RenderTouchEventListener extends RenderEventListener {
+  RenderTouchEventListener(
+      {required super.renderStyle,
+      required super.controller,
+      required super.hasEvent});
+
+  final RawPointerListener rawPointerListener = RawPointerListener();
+
+  @override
+  void handleEvent(PointerEvent event, covariant BoxHitTestEntry entry) {
+    super.handleEvent(event, entry);
+
+    rawPointerListener.handleEvent(renderStyle.target, event);
+  }
+}

@@ -1,0 +1,16 @@
+# Top-level .pubignore — applied to the repository as published.
+# Most consumers only depend on the webf/ Dart package, but this guards
+# against accidental inclusion when the root is published.
+
+debug-symbols/
+integration_tests/
+bridge/build/
+bridge/third_party/googletest/
+bridge/third_party/benchmark/
+bridge/test/
+.git/
+.github/
+.idea/
+.vscode/
+node_modules/
+coverage/

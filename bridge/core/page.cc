@@ -1,0 +1,463 @@
+/*
+ * Copyright (C) 2024-present The OpenWebF Company. All rights reserved.
+ * Licensed under GNU GPL with Enterprise exception.
+ */
+/*
+ * Copyright (C) 2019-2022 The Kraken authors. All rights reserved.
+ * Copyright (C) 2022-present The WebF authors. All rights reserved.
+ */
+#include <atomic>
+#include <unordered_map>
+
+#include "../foundation/string/atomic_string.h"
+#include "bindings/qjs/binding_initializer.h"
+#include "core/css/style_engine.h"
+#include "core/dart_methods.h"
+#include "core/dom/document.h"
+#include "core/frame/window.h"
+#include "core/html/custom/widget_element_shape.h"
+#include "core/html/html_html_element.h"
+#include "core/html/html_script_element.h"
+#include "core/html/parser/html_parser.h"
+#include "event_factory.h"
+#include "foundation/logging.h"
+#include "foundation/native_value_converter.h"
+#include "html_element_type_helper.h"
+#include "page.h"
+
+namespace webf {
+
+namespace {
+// This seems like a reasonable upper bound, and otherwise mutually
+// recursive frameset pages can quickly bring the program to its knees
+// with exponential growth in the number of frames.
+const int kMaxNumberOfFrames = 1000;
+
+// It is possible to use a reduced frame limit for testing, but only two values
+// are permitted, the default or reduced limit.
+const int kTenFrames = 10;
+
+bool g_limit_max_frames_to_ten_for_testing = false;
+}  // namespace
+
+ConsoleMessageHandler WebFPage::consoleMessageHandler{nullptr};
+
+WebFPage::WebFPage(DartIsolateContext* dart_isolate_context,
+                   bool is_dedicated,
+                   size_t sync_buffer_size,
+                   int8_t use_legacy_ui_command,
+                   double context_id,
+                   NativeWidgetElementShape* naive_widget_element_shape,
+                   int32_t shape_len,
+                   const JSExceptionHandler& handler)
+    : ownerThreadId(std::this_thread::get_id()), dart_isolate_context_(dart_isolate_context) {
+  context_ = new ExecutingContext(
+      dart_isolate_context, is_dedicated, sync_buffer_size, use_legacy_ui_command, context_id, naive_widget_element_shape, shape_len,
+      [](ExecutingContext* context, const char* message) {
+        WEBF_LOG(ERROR) << message << std::endl;
+        if (context->IsContextValid()) {
+          context->dartMethodPtr()->onJSError(context->isDedicated(), context->contextId(), message);
+        }
+      },
+      this);
+}
+
+bool WebFPage::parseHTML(const char* code, size_t length) {
+  if (!context_->IsContextValid())
+    return false;
+
+  {
+    MemberMutationScope scope{context_};
+
+    auto document_element = context_->document()->documentElement();
+    if (!document_element) {
+      return false;
+    }
+
+    HTMLParser::parseHTML(code, length, context_->document()->documentElement());
+  }
+
+  context_->uiCommandBuffer()->AddCommand(UICommand::kFinishRecordingCommand, nullptr, nullptr, nullptr);
+
+  return true;
+}
+
+NativeValue* WebFPage::invokeModuleEvent(SharedNativeString* native_module_name,
+                                         const char* eventType,
+                                         void* ptr,
+                                         NativeValue* extra) {
+  if (!context_->IsContextValid())
+    return nullptr;
+
+  MemberMutationScope scope{context_};
+
+  JSContext* ctx = context_->ctx();
+  Event* event = nullptr;
+  if (ptr != nullptr) {
+    std::string type = std::string(eventType);
+    auto* raw_event = static_cast<RawEvent*>(ptr);
+    event = EventFactory::Create(context_, AtomicString(type), raw_event);
+    delete raw_event;
+  }
+
+  ScriptValue extraObject = ScriptValue(ctx, const_cast<const NativeValue&>(*extra));
+  AtomicString module_name =
+      AtomicString(std::unique_ptr<AutoFreeNativeString>(reinterpret_cast<AutoFreeNativeString*>(native_module_name)));
+  auto listener = context_->ModuleListeners()->listener(module_name);
+
+  if (listener == nullptr) {
+    return nullptr;
+  }
+
+  auto callback_value = listener->value();
+  if (auto* callback = DynamicTo<QJSFunction>(callback_value.get())) {
+    ScriptValue arguments[] = {event != nullptr ? event->ToValue() : ScriptValue::Empty(ctx), extraObject};
+    ScriptValue result = callback->Invoke(ctx, ScriptValue::Empty(ctx), 2, arguments);
+    if (result.IsException()) {
+      context_->HandleException(&result);
+      return nullptr;
+    }
+
+    ExceptionState exception_state;
+    auto* return_value = static_cast<NativeValue*>(dart_malloc(sizeof(NativeValue)));
+    NativeValue tmp = result.ToNative(ctx, exception_state);
+    if (exception_state.HasException()) {
+      context_->HandleException(exception_state);
+      return nullptr;
+    }
+
+    memcpy(return_value, &tmp, sizeof(NativeValue));
+    return return_value;
+  } else if (auto* callback = DynamicTo<WebFNativeFunction>(callback_value.get())) {
+    auto* params = new NativeValue[2];
+    ExceptionState exception_state;
+    ScriptValue eventValue = event != nullptr ? event->ToValue() : ScriptValue::Empty(ctx);
+    params[0] = eventValue.ToNative(ctx, exception_state);
+    params[1] = *extra;
+
+    if (exception_state.HasException()) {
+      context_->HandleException(exception_state);
+      return nullptr;
+    }
+
+    NativeValue tmp = callback->Invoke(context_, 2, params);
+    auto* return_value = static_cast<NativeValue*>(dart_malloc(sizeof(NativeValue)));
+    memcpy(return_value, &tmp, sizeof(NativeValue));
+    context_->RunRustFutureTasks();
+    return return_value;
+  }
+
+  return nullptr;
+}
+
+bool WebFPage::evaluateScript(const char* script,
+                              uint64_t script_len,
+                              uint8_t** parsed_bytecodes,
+                              uint64_t* bytecode_len,
+                              const char* url,
+                              int startLine,
+                              HTMLScriptElement* script_element) {
+  if (!context_->IsContextValid())
+    return false;
+  return context_->EvaluateJavaScript(script, script_len, parsed_bytecodes, bytecode_len, url, startLine, script_element);
+}
+
+void WebFPage::evaluateScript(const char* script, size_t length, const char* url, int startLine, HTMLScriptElement* script_element) {
+  if (!context_->IsContextValid())
+    return;
+  context_->EvaluateJavaScript(script, length, url, startLine, script_element);
+}
+
+bool WebFPage::evaluateModule(const char* script,
+                              uint64_t script_len,
+                              uint8_t** parsed_bytecodes,
+                              uint64_t* bytecode_len,
+                              const char* url,
+                              int startLine,
+                              HTMLScriptElement* script_element) {
+  if (!context_->IsContextValid())
+    return false;
+  return context_->EvaluateModule(script, script_len, parsed_bytecodes, bytecode_len, url, startLine, script_element);
+}
+
+uint8_t* WebFPage::dumpByteCode(const char* script, size_t length, const char* url, bool is_module, uint64_t* byteLength) {
+  if (!context_->IsContextValid())
+    return nullptr;
+  return context_->DumpByteCode(script, static_cast<uint32_t>(length), url, is_module, byteLength);
+}
+
+bool WebFPage::evaluateByteCode(uint8_t* bytes, size_t byteLength, HTMLScriptElement* script_element) {
+  if (!context_->IsContextValid())
+    return false;
+  return context_->EvaluateByteCode(bytes, byteLength, script_element);
+}
+
+std::thread::id WebFPage::currentThread() const {
+  return ownerThreadId;
+}
+
+WebFPage::~WebFPage() {
+#if IS_TEST
+  if (disposeCallback != nullptr) {
+    disposeCallback(this);
+  }
+#endif
+  delete context_;
+}
+
+void WebFPage::reportError(const char* errmsg) {
+  handler_(context_, errmsg);
+}
+
+static void ReturnEvaluateScriptsInternal(Dart_PersistentHandle persistent_handle,
+                                          EvaluateQuickjsByteCodeCallback result_callback,
+                                          bool is_success) {
+  Dart_Handle handle = Dart_HandleFromPersistent_DL(persistent_handle);
+  result_callback(handle, is_success ? 1 : 0);
+  Dart_DeletePersistentHandle_DL(persistent_handle);
+}
+
+void WebFPage::EvaluateScriptsInternal(void* page_,
+                                       const char* code,
+                                       uint64_t code_len,
+                                       uint8_t** parsed_bytecodes,
+                                       uint64_t* bytecode_len,
+                                       const char* bundleFilename,
+                                       int32_t startLine,
+                                       void* script_element_,
+                                       Dart_Handle persistent_handle,
+                                       EvaluateScriptsCallback result_callback) {
+  auto page = reinterpret_cast<webf::WebFPage*>(page_);
+  auto script_element_native_binding_object = reinterpret_cast<webf::NativeBindingObject*>(script_element_);
+  auto binding_object = BindingObject::From(script_element_native_binding_object);
+  auto* script_element = DynamicTo<HTMLScriptElement>(binding_object);
+  assert(std::this_thread::get_id() == page->currentThread());
+
+  bool is_success = page->evaluateScript(code, code_len, parsed_bytecodes, bytecode_len, bundleFilename, startLine, script_element);
+
+  page->dartIsolateContext()->dispatcher()->PostToDart(page->isDedicated(), ReturnEvaluateScriptsInternal,
+                                                       persistent_handle, result_callback, is_success);
+}
+
+void WebFPage::EvaluateModuleInternal(void* page_,
+                                      const char* code,
+                                      uint64_t code_len,
+                                      uint8_t** parsed_bytecodes,
+                                      uint64_t* bytecode_len,
+                                      const char* bundleFilename,
+                                      int32_t startLine,
+                                      void* script_element_,
+                                      Dart_Handle persistent_handle,
+                                      EvaluateScriptsCallback result_callback) {
+  auto page = reinterpret_cast<webf::WebFPage*>(page_);
+  auto script_element_native_binding_object = reinterpret_cast<webf::NativeBindingObject*>(script_element_);
+  auto binding_object = BindingObject::From(script_element_native_binding_object);
+  auto* script_element = DynamicTo<HTMLScriptElement>(binding_object);
+  assert(std::this_thread::get_id() == page->currentThread());
+
+  bool is_success = page->evaluateModule(code, code_len, parsed_bytecodes, bytecode_len, bundleFilename, startLine, script_element);
+
+  page->dartIsolateContext()->dispatcher()->PostToDart(page->isDedicated(), ReturnEvaluateScriptsInternal,
+                                                       persistent_handle, result_callback, is_success);
+}
+
+static void ReturnEvaluateQuickjsByteCodeResultToDart(Dart_PersistentHandle persistent_handle,
+                                                      EvaluateQuickjsByteCodeCallback result_callback,
+                                                      bool is_success) {
+  Dart_Handle handle = Dart_HandleFromPersistent_DL(persistent_handle);
+  result_callback(handle, is_success ? 1 : 0);
+  Dart_DeletePersistentHandle_DL(persistent_handle);
+}
+
+void WebFPage::EvaluateQuickjsByteCodeInternal(void* page_,
+                                               uint8_t* bytes,
+                                               int32_t byteLen,
+                                               const char* url,
+                                               void* script_element_,
+                                               Dart_PersistentHandle persistent_handle,
+                                               EvaluateQuickjsByteCodeCallback result_callback) {
+  auto page = reinterpret_cast<webf::WebFPage*>(page_);
+  auto script_element_native_binding_object = reinterpret_cast<webf::NativeBindingObject*>(script_element_);
+  auto binding_object = BindingObject::From(script_element_native_binding_object);
+  auto* script_element = DynamicTo<HTMLScriptElement>(binding_object);
+  assert(std::this_thread::get_id() == page->currentThread());
+
+  // When executing cached bytecode we no longer have a sourceURL in the QuickJS
+  // eval entrypoint, so initialize the document base URL from the Dart-provided
+  // script URL to avoid propagating about:blank into CSS resolution.
+  if (page->executingContext()) {
+    page->executingContext()->MaybeInitializeDocumentURLFromSourceURL(url);
+  }
+
+  bool is_success = page->evaluateByteCode(bytes, byteLen, script_element);
+
+  page->dartIsolateContext()->dispatcher()->PostToDart(page->isDedicated(), ReturnEvaluateQuickjsByteCodeResultToDart,
+                                                       persistent_handle, result_callback, is_success);
+}
+
+static void ReturnParseHTMLToDart(Dart_PersistentHandle persistent_handle, ParseHTMLCallback result_callback) {
+  Dart_Handle handle = Dart_HandleFromPersistent_DL(persistent_handle);
+  result_callback(handle);
+  Dart_DeletePersistentHandle_DL(persistent_handle);
+}
+
+void WebFPage::ParseHTMLInternal(void* page_,
+                                 char* code,
+                                 int32_t length,
+                                 const char* url,
+                                 Dart_PersistentHandle dart_handle,
+                                 ParseHTMLCallback result_callback) {
+  auto page = reinterpret_cast<webf::WebFPage*>(page_);
+  assert(std::this_thread::get_id() == page->currentThread());
+
+  if (page->executingContext()) {
+    page->executingContext()->MaybeInitializeDocumentURLFromSourceURL(url);
+  }
+
+  page->parseHTML(code, length);
+  dart_free(code);
+
+  page->dartIsolateContext()->dispatcher()->PostToDart(page->isDedicated(), ReturnParseHTMLToDart, dart_handle,
+                                                       result_callback);
+}
+
+static void ReturnInvokeEventResultToDart(Dart_Handle persistent_handle,
+                                          InvokeModuleEventCallback result_callback,
+                                          webf::NativeValue* result) {
+  Dart_Handle handle = Dart_HandleFromPersistent_DL(persistent_handle);
+  result_callback(handle, result);
+  Dart_DeletePersistentHandle_DL(persistent_handle);
+}
+
+void WebFPage::InvokeModuleEventInternal(void* page_,
+                                         void* module_name,
+                                         const char* eventType,
+                                         void* event,
+                                         void* extra,
+                                         Dart_Handle persistent_handle,
+                                         InvokeModuleEventCallback result_callback) {
+  auto page = reinterpret_cast<webf::WebFPage*>(page_);
+  auto dart_isolate_context = page->executingContext()->dartIsolateContext();
+  assert(std::this_thread::get_id() == page->currentThread());
+
+  auto* result = page->invokeModuleEvent(reinterpret_cast<webf::SharedNativeString*>(module_name), eventType, event,
+                                         reinterpret_cast<webf::NativeValue*>(extra));
+
+  dart_isolate_context->dispatcher()->PostToDart(page->isDedicated(), ReturnInvokeEventResultToDart, persistent_handle,
+                                                 result_callback, result);
+}
+
+static void ReturnDumpByteCodeResultToDart(Dart_Handle persistent_handle, DumpQuickjsByteCodeCallback result_callback) {
+  Dart_Handle handle = Dart_HandleFromPersistent_DL(persistent_handle);
+  result_callback(handle);
+  Dart_DeletePersistentHandle_DL(persistent_handle);
+}
+
+void WebFPage::DumpQuickJsByteCodeInternal(void* page_,
+                                           const char* code,
+                                           int32_t code_len,
+                                           uint8_t** parsed_bytecodes,
+                                           uint64_t* bytecode_len,
+                                           const char* url,
+                                           bool is_module,
+                                           Dart_PersistentHandle persistent_handle,
+                                           DumpQuickjsByteCodeCallback result_callback) {
+  auto page = reinterpret_cast<webf::WebFPage*>(page_);
+  auto dart_isolate_context = page->executingContext()->dartIsolateContext();
+
+  assert(std::this_thread::get_id() == page->currentThread());
+  uint8_t* bytes = page->dumpByteCode(code, code_len, url, is_module, bytecode_len);
+  *parsed_bytecodes = bytes;
+
+  dart_isolate_context->dispatcher()->PostToDart(page->isDedicated(), ReturnDumpByteCodeResultToDart, persistent_handle,
+                                                 result_callback);
+}
+
+void WebFPage::OnViewportSizeChangedInternal(void* page_, double inner_width, double inner_height) {
+  auto page = reinterpret_cast<webf::WebFPage*>(page_);
+  if (!page) {
+    return;
+  }
+
+  assert(std::this_thread::get_id() == page->currentThread());
+
+  ExecutingContext* context = page->executingContext();
+  if (!context || !context->IsContextValid() || !context->isBlinkEnabled()) {
+    return;
+  }
+
+  // Cache viewport size so media query evaluation can avoid synchronous
+  // GetBindingProperty calls (which may flush layout).
+  context->SetCachedViewportSize(inner_width, inner_height);
+
+  Document* document = context->document();
+  if (!document) {
+    return;
+  }
+
+  // Viewport size changes affect width/height/device-width/device-height
+  // media queries. Let the style engine react accordingly.
+  document->EnsureStyleEngine().MediaQueryAffectingValueChanged(MediaValueChange::kSize);
+}
+
+void WebFPage::OnDevicePixelRatioChangedInternal(void* page_, double device_pixel_ratio) {
+  auto page = reinterpret_cast<webf::WebFPage*>(page_);
+  if (!page) {
+    return;
+  }
+
+  assert(std::this_thread::get_id() == page->currentThread());
+
+  ExecutingContext* context = page->executingContext();
+  if (!context || !context->IsContextValid() || !context->isBlinkEnabled()) {
+    return;
+  }
+
+  context->SetCachedDevicePixelRatio(static_cast<float>(device_pixel_ratio));
+
+  Document* document = context->document();
+  if (!document) {
+    return;
+  }
+
+  // DPR/resolution changes influence resolution/device-pixel-ratio media
+  // queries; treat them as "other" environment changes for now.
+  document->EnsureStyleEngine().MediaQueryAffectingValueChanged(MediaValueChange::kOther);
+}
+
+void WebFPage::OnColorSchemeChangedInternal(void* page_, const std::string& scheme/*scheme*/) {
+  auto page = reinterpret_cast<webf::WebFPage*>(page_);
+  if (!page) {
+    return;
+  }
+
+  assert(std::this_thread::get_id() == page->currentThread());
+
+  ExecutingContext* context = page->executingContext();
+  if (!context || !context->IsContextValid() || !context->isBlinkEnabled()) {
+    return;
+  }
+
+  if (scheme == "dark") {
+    context->SetCachedPreferredColorScheme(ExecutingContext::PreferredColorScheme::kDark);
+  } else if (scheme == "light") {
+    context->SetCachedPreferredColorScheme(ExecutingContext::PreferredColorScheme::kLight);
+  } else if (scheme == "no-preference") {
+    context->SetCachedPreferredColorScheme(ExecutingContext::PreferredColorScheme::kNoPreference);
+  }
+
+  Document* document = context->document();
+  if (!document) {
+    return;
+  }
+
+  // prefers-color-scheme is modeled as an "other" media value change.
+  document->EnsureStyleEngine().MediaQueryAffectingValueChanged(MediaValueChange::kOther);
+}
+
+// static
+int WebFPage::MaxNumberOfFrames() {
+  return kMaxNumberOfFrames;
+}
+
+}  // namespace webf

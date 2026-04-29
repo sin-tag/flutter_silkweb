@@ -1,0 +1,293 @@
+/*
+ * Copyright (C) 2024-present The OpenWebF Company. All rights reserved.
+ * Licensed under GNU GPL with Enterprise exception.
+ */
+/*
+ * Copyright (C) 2019-2022 The Kraken authors. All rights reserved.
+ * Copyright (C) 2022-2024 The WebF authors. All rights reserved.
+ */
+
+import 'package:flutter_silkweb/css.dart';
+import 'package:flutter_silkweb/dom.dart' as dom;
+import 'package:flutter_silkweb/rendering.dart';
+
+// CSS Box Sizing: https://drafts.csswg.org/css-sizing-3/
+
+/// - width
+/// - height
+/// - max-width
+/// - max-height
+/// - min-width
+/// - min-height
+
+mixin CSSSizingMixin on RenderStyle {
+  // Parse aspect-ratio according to CSS Sizing Level 4
+  // Grammar: auto | <number> | <number> [ '/' <number> ]
+  // Returns a double ratio (width/height) or null for 'auto' / invalid.
+  static double? resolveAspectRatio(String input) {
+    final String value = input.trim();
+    if (value.isEmpty) return null;
+    if (value.toLowerCase() == 'auto') return null;
+
+    // Try fraction form: a / b (allow spaces around slash)
+    final int slash = value.indexOf('/');
+    if (slash != -1) {
+      final String a = value.substring(0, slash).trim();
+      final String b = value.substring(slash + 1).trim();
+      final double? num = double.tryParse(a);
+      final double? den = double.tryParse(b);
+      if (num == null || den == null) return null;
+      if (den == 0) return null;
+      return num / den;
+    }
+
+    // Single number form
+    final double? single = double.tryParse(value);
+    if (single == null) return null;
+    return single.isFinite && single > 0 ? single : null;
+  }
+  // https://drafts.csswg.org/css-sizing-3/#preferred-size-properties
+  // Name: width, height
+  // Value: auto | <length-percentage> | min-content | max-content | fit-content(<length-percentage>)
+  // Initial: auto
+  // Applies to: all elements except non-replaced inlines
+  // Inherited: no
+  // Percentages: relative to width/height of containing block
+  // Computed value: as specified, with <length-percentage> values computed
+  // Canonical order: per grammar
+  // Animation type: by computed value type, recursing into fit-content()
+  CSSLengthValue? _width;
+
+  @override
+  CSSLengthValue get width => _width ?? CSSLengthValue.auto;
+
+  set width(CSSLengthValue? value) {
+    // Negative value is invalid, auto value is parsed at layout stage.
+    if ((value != null && value.value != null && value.value! < 0) || width == value) {
+      return;
+    }
+    _width = value;
+    cleanContentBoxLogiclWidth();
+    _markSelfAndParentNeedsLayout();
+    _markScrollContainerNeedsLayout();
+  }
+
+  CSSLengthValue? _height;
+
+  @override
+  CSSLengthValue get height => _height ?? CSSLengthValue.auto;
+
+  set height(CSSLengthValue? value) {
+    // Negative value is invalid, auto value is parsed at layout stage.
+    if ((value != null && value.value != null && value.value! < 0) || height == value) {
+      return;
+    }
+    _height = value;
+    cleanContentBoxLogiclHeight();
+    _markSelfAndParentNeedsLayout();
+    _markScrollContainerNeedsLayout();
+  }
+
+  // https://drafts.csswg.org/css-sizing-3/#min-size-properties
+  // Name: min-width, min-height
+  // Value: auto | <length-percentage> | min-content | max-content | fit-content(<length-percentage>)
+  // Initial: auto
+  // Applies to: all elements that accept width or height
+  // Inherited: no
+  // Percentages: relative to width/height of containing block
+  // Computed value: as specified, with <length-percentage> values computed
+  // Canonical order: per grammar
+  // Animatable: by computed value, recursing into fit-content()
+  CSSLengthValue? _minWidth;
+
+  @override
+  CSSLengthValue get minWidth => _minWidth ?? CSSLengthValue.auto;
+
+  set minWidth(CSSLengthValue? value) {
+    // Negative value is invalid, auto value is parsed at layout stage.
+    if ((value != null && value.value != null && value.value! < 0) || minWidth == value) {
+      return;
+    }
+    _minWidth = value;
+    cleanContentBoxLogiclWidth();
+    _markSelfAndParentNeedsLayout();
+    _markScrollContainerNeedsLayout();
+  }
+
+  CSSLengthValue? _minHeight;
+
+  @override
+  CSSLengthValue get minHeight => _minHeight ?? CSSLengthValue.auto;
+
+  set minHeight(CSSLengthValue? value) {
+    // Negative value is invalid, auto value is parsed at layout stage.
+    if ((value != null && value.value != null && value.value! < 0) || minHeight == value) {
+      return;
+    }
+    _minHeight = value;
+    _markSelfAndParentNeedsLayout();
+    _markScrollContainerNeedsLayout();
+  }
+
+  // https://drafts.csswg.org/css-sizing-3/#max-size-properties
+  // Name: max-width, max-height
+  // Value: none | <length-percentage> | min-content | max-content | fit-content(<length-percentage>)
+  // Initial: none
+  // Applies to: all elements that accept width or height
+  // Inherited: no
+  // Percentages: relative to width/height of containing block
+  // Computed value: as specified, with <length-percentage> values computed
+  // Canonical order: per grammar
+  // Animatable: by computed value, recursing into fit-content()
+  CSSLengthValue? _maxWidth;
+
+  @override
+  CSSLengthValue get maxWidth => _maxWidth ?? CSSLengthValue.none;
+
+  set maxWidth(CSSLengthValue? value) {
+    // Negative value is invalid, auto value is parsed at layout stage.
+    if ((value != null && value.value != null && value.value! < 0) || maxWidth == value) {
+      return;
+    }
+    _maxWidth = value;
+    cleanContentBoxLogiclWidth();
+    _markSelfAndParentNeedsLayout();
+    _markScrollContainerNeedsLayout();
+  }
+
+  CSSLengthValue? _maxHeight;
+
+  @override
+  void addViewportSizeRelativeProperty() {
+    target.ownerView.window.watchViewportSizeChangeForElement(target);
+  }
+
+  @override
+  CSSLengthValue get maxHeight {
+    return _maxHeight ?? CSSLengthValue.none;
+  }
+
+  set maxHeight(CSSLengthValue? value) {
+    // Negative value is invalid, auto value is parsed at layout stage.
+    if ((value != null && value.value != null && value.value! < 0) || maxHeight == value) {
+      return;
+    }
+    _maxHeight = value;
+    cleanContentBoxLogiclHeight();
+    _markSelfAndParentNeedsLayout();
+    _markScrollContainerNeedsLayout();
+  }
+
+  // Intrinsic width of replaced element.
+  double _intrinsicWidth = 0;
+  @override
+  double get intrinsicWidth {
+    return _intrinsicWidth;
+  }
+
+  set intrinsicWidth(double value) {
+    if (_intrinsicWidth == value) return;
+    _intrinsicWidth = value;
+    _markSelfAndParentNeedsLayout();
+    _markScrollContainerNeedsLayout();
+  }
+
+  // Intrinsic height of replaced element.
+  double _intrinsicHeight = 0;
+  @override
+  double get intrinsicHeight {
+    return _intrinsicHeight;
+  }
+
+  set intrinsicHeight(double value) {
+    if (_intrinsicHeight == value) return;
+    _intrinsicHeight = value;
+    _markSelfAndParentNeedsLayout();
+    _markScrollContainerNeedsLayout();
+  }
+
+  // Aspect ratio of replaced element.
+  // @TODO: Currently only intrinsic aspect ratio is supported, preferred aspect ratio is not supported.
+  // https://drafts.csswg.org/css-sizing-4/#aspect-ratio
+  double? _aspectRatio;
+  @override
+  double? get aspectRatio {
+    return _aspectRatio;
+  }
+
+  set aspectRatio(double? value) {
+    if (_aspectRatio == value) return;
+    _aspectRatio = value;
+    _markSelfAndParentNeedsLayout();
+  }
+
+  void _markSelfAndParentNeedsLayout() {
+    if (!hasRenderBox()) return;
+    markNeedsIntrinsicMeasurement('sizing');
+    markNeedsLayout();
+
+    // Sizing may affect parent size, mark parent as needsLayout in case
+    // renderBoxModel has tight constraints which will prevent parent from marking.
+    if (isParentRenderBoxModel()) {
+      markParentNeedsLayout();
+
+      // For positioned element with no left&right or top&bottom, the offset of its positioned placeholder will change
+      // when its size has changed in flex layout.
+      //
+      // Take following html for example, div of id=2 should reposition to align center in horizontal direction
+      // when its width has changed.
+      // <div style="display: flex; height: 100px; justify-content: center;">
+      //   <div id=2 style="position: absolute; width: 50px; height: 50px;">
+      //   </div>
+      // </div>
+      //
+      // The renderBox of position element and its positioned placeholder will not always share the same parent,
+      // so it needs to mark the positioned placeholder as needs layout additionally to mark sure the renderBox
+      // of position element can get the updated offset of its positioned placeholder when it is layouted.
+      RenderStyle renderStyle = this;
+      if (isSelfContainsRenderPositionPlaceHolder() &&
+          isPositionHolderParentIsRenderFlexLayout() &&
+          isSelfPositioned() &&
+          ((renderStyle.left.isAuto && renderStyle.right.isAuto) ||
+              (renderStyle.top.isAuto && renderStyle.bottom.isAuto))) {
+
+        if (isPositionHolderParentIsRenderLayoutBox()) {
+          // Mark parent as _needsLayout directly as RenderPositionHolder has tight constraints which will
+          // prevent the _needsLayout flag to bubble up the renderObject tree.
+          markPositionHolderParentNeedsLayout();
+        }
+      }
+    }
+
+    // Should notify to window's renderObject.
+    if (isParentRenderViewportBox()) {
+      markParentNeedsLayout();
+    }
+
+    if (isDocumentRootBox()) {
+      void visitor(dom.Node node) {
+        if (node is! dom.Element) return;
+        node.renderStyle.markNeedsIntrinsicMeasurement('rootSizing');
+        node.renderStyle.markNeedsLayout();
+        node.visitChildren(visitor);
+      }
+
+      target.visitChildren(visitor);
+    }
+  }
+
+  void _markScrollContainerNeedsLayout() {
+    // A DOM element can be mounted into multiple Flutter subtrees at the same
+    // time (e.g. portals, CupertinoContextMenu preview/modal). Mark the nearest
+    // scroll container for each attached render tree so overflow sizing updates
+    // don't target a stale/mismatched ancestor chain.
+    final Set<int> visited = <int>{};
+    everyAttachedWidgetRenderBox((_, RenderBoxModel renderBoxModel) {
+      final RenderBoxModel? scrollContainer = renderBoxModel.findScrollContainer();
+      if (scrollContainer != null && visited.add(scrollContainer.hashCode)) {
+        scrollContainer.markNeedsLayout();
+      }
+      return true;
+    });
+  }
+}

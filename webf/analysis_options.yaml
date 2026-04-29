@@ -1,0 +1,21 @@
+# This file configures the analyzer, which statically analyzes Dart code to
+# check for errors, warnings, and lints.
+#
+# The issues identified by the analyzer are surfaced in the UI of Dart-enabled
+# IDEs (https://dart.dev/tools#ides-and-editors). The analyzer can also be
+# invoked from the command line by running `flutter analyze`.
+
+# The following line activates a set of recommended lints for Flutter apps,
+# packages, and plugins designed to encourage good coding practices.
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  exclude:
+    # This is a vendored nested tool that isn't a standalone Dart package in this repo
+    # (missing its own pubspec/deps), so analyzing it from the root package fails.
+    - example/rust_builder/cargokit/build_tool/**
+    # Nested Flutter app/package with its own `pubspec.yaml` (lint it by running
+    # `flutter analyze` from within `integration_test/` instead).
+    - integration_test/**
+
+# Additional configuration can be added here if needed in the future

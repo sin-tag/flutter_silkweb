@@ -1,0 +1,115 @@
+/*
+ * Copyright (C) 2024-present The OpenWebF Company. All rights reserved.
+ * Licensed under GNU GPL with Enterprise exception.
+ */
+
+import 'package:flutter/widgets.dart';
+import 'package:flutter_silkweb/dom.dart' as dom;
+import 'package:flutter_silkweb/webf.dart';
+
+class WebFHTMLElement extends WebFRenderLayoutWidgetAdaptor {
+  final String tagName;
+  final WebFController controller;
+  final dom.Element? parentElement;
+  final Map<String, String>? inlineStyle;
+
+  const WebFHTMLElement({
+    required this.tagName,
+    required this.controller,
+    super.key,
+    required this.parentElement,
+    required super.children,
+    this.inlineStyle,
+  });
+
+  @override
+  RenderObject createRenderObject(BuildContext context) {
+    SelfOwnedWebRenderLayoutWidgetElement element = context as SelfOwnedWebRenderLayoutWidgetElement;
+    return element.createRenderLayoutBox(tagName);
+  }
+
+  @override
+  WebRenderLayoutRenderObjectElement createElement() {
+    return SelfOwnedWebRenderLayoutWidgetElement(this, tagName, controller);
+  }
+
+  @override
+  String toStringShort() {
+    return 'WebFHTMLElement($tagName)';
+  }
+}
+
+class SelfOwnedWebRenderLayoutWidgetElement extends WebRenderLayoutRenderObjectElement {
+  SelfOwnedWebRenderLayoutWidgetElement(super.widget, this.tagName, this.controller);
+
+  dom.Element? _webFElement;
+  String tagName;
+  WebFController controller;
+
+  RenderObject createRenderLayoutBox(String tagName) {
+    return _webFElement!.renderStyle.getWidgetPairedRenderBoxModel(this)!;
+  }
+
+  @override
+  WebFHTMLElement get widget => super.widget as WebFHTMLElement;
+
+  dom.Element? findClosestAncestorHTMLElement(Element? parent) {
+    if (parent == null) return null;
+    dom.Element? target;
+    parent.visitAncestorElements((Element element) {
+      if (element is WebFWidgetElementAdapterElement) {
+        target = element.widget.widgetElement;
+        return false;
+      } else if (element is SelfOwnedWebRenderLayoutWidgetElement) {
+        target = element._webFElement;
+        return false;
+      } else if (element is ExternalWebRenderLayoutWidgetElement) {
+        target = element.webFElement;
+        return false;
+      }
+      return true;
+    });
+    return target;
+  }
+
+  void fullFillInlineStyle(Map<String, String> inlineStyle) {
+    inlineStyle.forEach((key, value) {
+      _webFElement!.setInlineStyle(key, value);
+    });
+  }
+
+  @override
+  void mount(Element? parent, Object? newSlot) {
+    dom.Element element = dom.createElement(
+        tagName, BindingContext(controller.view, controller.view.contextId, allocateNewBindingObject()));
+    element.parentOrShadowHostNode = widget.parentElement;
+    element.isConnected = true;
+    element.isWidgetOwned = true;
+
+    _webFElement = element;
+
+    if (widget.inlineStyle != null) {
+      fullFillInlineStyle(widget.inlineStyle!);
+    }
+    _webFElement!.applyDefaultStyle(_webFElement!.style);
+    _webFElement!.renderStyle.initDisplay(_webFElement!.style);
+    _webFElement!.applyAttributeStyle(_webFElement!.style);
+    _webFElement!.applyInlineStyle(_webFElement!.style);
+    element.style.flushDisplayProperties();
+
+    super.mount(parent, newSlot);
+  }
+
+  @override
+  void unmount() {
+    _webFElement!.willDetachRenderer(this);
+    super.unmount();
+    _webFElement!.didDetachRenderer(this);
+    _webFElement!.parentOrShadowHostNode = null;
+    WebFViewController.disposeBindingObject(_webFElement!.ownerView, _webFElement!.pointer!);
+    _webFElement = null;
+  }
+
+  @override
+  dom.Element get webFElement => _webFElement!;
+}

@@ -1,0 +1,2105 @@
+/*
+ * Copyright (C) 2024-present The OpenWebF Company. All rights reserved.
+ * Licensed under GNU GPL with Enterprise exception.
+ */
+/*
+ * Copyright (C) 2019-2022 The Kraken authors. All rights reserved.
+ * Copyright (C) 2022-2024 The WebF authors. All rights reserved.
+ */
+
+import 'dart:async';
+import 'dart:collection';
+import 'dart:convert';
+import 'dart:ffi';
+import 'dart:io';
+import 'dart:ui' as ui;
+import 'dart:ui';
+
+import 'package:ffi/ffi.dart';
+import 'package:flutter/animation.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/scheduler.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart'
+    show
+        AnimationController,
+        BuildContext,
+        MediaQuery,
+        MediaQueryData,
+        ModalRoute,
+        RouteObserver,
+        StatefulElement,
+        View;
+import 'package:flutter_silkweb/css.dart';
+import 'package:dio/dio.dart' show Interceptor; // For custom Dio configuration
+import 'package:flutter_silkweb/dom.dart';
+import 'package:flutter_silkweb/rendering.dart';
+import 'package:flutter_silkweb/webf.dart';
+import 'package:flutter_silkweb/devtools.dart'; // Import for ChromeDevToolsService
+import 'package:flutter_silkweb/src/devtools/panel/performance_tracker.dart';
+import 'package:flutter_silkweb/src/launcher/render_tree_dump_storage.dart';
+
+// Error handler when load bundle failed.
+typedef LoadErrorHandler = void Function(FlutterError error, StackTrace stack);
+
+/// A callback that is invoked when a WebFController is fully initialized but before the content is executed.
+///
+/// Use this to perform early configuration or setup of the WebF environment before any content is loaded.
+/// This provides a chance to interact with the controller when its native components are ready but before
+/// the JavaScript execution begins.
+///
+/// The callback must return a Future to allow for asynchronous setup operations.
+typedef OnControllerInit = Future<void> Function(WebFController controller);
+typedef LoadHandler = void Function(WebFController controller);
+typedef TitleChangedHandler = void Function(String title);
+typedef JSErrorHandler = void Function(String message);
+typedef JSLogHandler = void Function(int level, String message);
+typedef PendingCallback = void Function();
+typedef LCPHandler = void Function(double lcpTime, bool isEvaluated);
+typedef FCPHandler = void Function(double fcpTime, bool isEvaluated);
+typedef FPHandler = void Function(double fpTime, bool isEvaluated);
+
+// Route-aware performance metric handlers
+typedef RouteLCPHandler = void Function(double lcpTime, String routePath);
+typedef RouteFCPHandler = void Function(double fcpTime, String routePath);
+typedef RouteFPHandler = void Function(double fpTime, String routePath);
+
+// Content verification handler
+typedef ContentVerificationHandler = void Function(
+    ContentInfo contentInfo, String routePath);
+
+typedef TraverseElementCallback = void Function(Element element);
+
+/// Tracks performance metrics for a specific route page
+class RoutePerformanceMetrics {
+  final String routePath;
+  DateTime? navigationStartTime;
+  bool lcpReported = false;
+  double largestContentfulPaintSize = 0;
+  double lastReportedLCPTime = 0;
+  WeakReference<Element>? currentLCPElement;
+  Timer? lcpAutoFinalizeTimer;
+
+  // FCP tracking
+  bool fcpReported = false;
+  double fcpTime = 0;
+
+  // FP tracking
+  bool fpReported = false;
+  double fpTime = 0;
+
+  // Content verification results
+  ContentInfo? lcpContentInfo;
+
+  // Initial evaluated state when performance tracking started
+  bool initialEvaluatedState = false;
+
+  RoutePerformanceMetrics(this.routePath);
+
+  void dispose() {
+    lcpAutoFinalizeTimer?.cancel();
+  }
+}
+
+class HybridRoutePageContext {
+  /// The route path for the hybrid router in WebF.
+  String path;
+
+  /// The route state for the hybrid router in WebF.
+  dynamic state;
+
+  /// The attached flutter buildContexts for this hybrid route page.
+  BuildContext context;
+
+  HybridRoutePageContext(this.path, this.context, this.state);
+}
+
+class RenderObjectTreeDumpResult {
+  final String text;
+  final String? savedFilePath;
+
+  const RenderObjectTreeDumpResult({
+    required this.text,
+    this.savedFilePath,
+  });
+}
+
+enum WebFLoadingMode {
+  /// This mode preloads remote resources into memory and begins execution when the WebF widget is mounted into the Flutter tree.
+  /// If the entrypoint is an HTML file, the HTML will be parsed, and its elements will be organized into a DOM tree.
+  /// CSS files loaded through `<style>` and `<link>` elements will be parsed and the calculated styles applied to the corresponding DOM elements.
+  /// However, JavaScript code will not be executed in this mode.
+  /// If the entrypoint is a JavaScript file, WebF only do loading until the WebF widget is mounted into the Flutter tree.
+  /// Using this mode can save up to 50% of loading time, while maintaining a high level of compatibility with the standard mode.
+  /// It's safe and recommended to use this mode for all types of pages.
+  preloading,
+
+  /// The `aggressive` mode is a step further than `preloading`, cutting down up to 90% of loading time for optimal performance.
+  /// This mode simulates the instantaneous response of native Flutter pages but may require modifications in the existing web codes for compatibility.
+  /// In this mode, all remote resources are loaded and executed similarly to the standard mode, but with an offline-like behavior.
+  /// Given that JavaScript is executed in this mode, properties like `clientWidth` and `clientHeight` from the CSSOM-view spec always return 0. This is because
+  /// no layout or paint processes occur during preRendering.
+  /// If your application depends on CSSOM-view properties to work, ensure that the related code is placed within the `load` and `DOMContentLoaded` event callbacks of the window.
+  /// These callbacks are triggered once the WebF widget is mounted into the Flutter tree.
+  /// Apps optimized for this mode remain compatible with both `standard` and `preloading` modes.
+  preRendering
+}
+
+enum PreloadingStatus {
+  none,
+  preloading,
+  done,
+  fail,
+}
+
+enum PreRenderingStatus { none, preloading, evaluate, rendering, done, fail }
+
+class WebFController with Diagnosticable {
+  TextScaler _textScaler = TextScaler.noScaling;
+  bool _boldText = false;
+
+  TextScaler get textScaler => _textScaler;
+  bool get boldText => _boldText;
+
+  void _markRenderSubtreeNeedsLayout(RenderObject root) {
+    root.visitChildren(_markRenderSubtreeNeedsLayout);
+    root.markNeedsLayout();
+    root.markNeedsPaint();
+  }
+
+  void updateTextSettingsFromContext(BuildContext context) {
+    final MediaQueryData data = MediaQuery.maybeOf(context) ??
+        MediaQueryData.fromView(View.of(context));
+    updateTextSettings(textScaler: data.textScaler, boldText: data.boldText);
+  }
+
+  void updateTextSettings(
+      {required TextScaler textScaler, required bool boldText}) {
+    final bool changed = _textScaler != textScaler || _boldText != boldText;
+    if (!changed) return;
+
+    _textScaler = textScaler;
+    _boldText = boldText;
+
+    // Force relayout so inline paragraph shaping / text measurements reflect the new scaling/weight.
+    final RenderViewportBox? viewport = _view?.currentViewport;
+    if (viewport != null) {
+      _markRenderSubtreeNeedsLayout(viewport);
+    }
+  }
+
+  // Route-specific performance metrics tracking
+  final Map<String, RoutePerformanceMetrics> _routeMetrics = {};
+
+  // Loading state dumper for tracking lifecycle phases
+  final LoadingState _loadingState = LoadingState();
+
+  /// Get the loading state dumper for tracking lifecycle phases
+  LoadingState get loadingState => _loadingState;
+
+  // Get current route metrics based on the current route in buildContextStack
+  RoutePerformanceMetrics? get _currentRouteMetrics {
+    if (_buildContextStack.isEmpty) {
+      // If no route is attached yet, try to get metrics for the initial route
+      final defaultRoute = initialRoute ?? '/';
+      return _routeMetrics[defaultRoute];
+    }
+    final currentRoutePath = _buildContextStack.last.path;
+    return _routeMetrics[currentRoutePath];
+  }
+
+  // Legacy single-route tracking for backward compatibility
+  DateTime? get _navigationStartTime =>
+      _currentRouteMetrics?.navigationStartTime;
+  bool get _lcpReported => _currentRouteMetrics?.lcpReported ?? false;
+  double get _lastReportedLCPTime =>
+      _currentRouteMetrics?.lastReportedLCPTime ?? 0;
+
+  // FCP tracking
+  bool get _fcpReported => _currentRouteMetrics?.fcpReported ?? false;
+  double get _fcpTime => _currentRouteMetrics?.fcpTime ?? 0;
+
+  // FP tracking
+  bool get _fpReported => _currentRouteMetrics?.fpReported ?? false;
+  double get _fpTime => _currentRouteMetrics?.fpTime ?? 0;
+
+  // Expose LCP tracking state for WebFState
+  bool get lcpInitialized => _navigationStartTime != null;
+  bool get lcpReported => _lcpReported;
+  bool get lcpFinalized => _lcpReported;
+  double get lastReportedLCPTime => _lastReportedLCPTime;
+
+  // Expose FCP tracking state
+  bool get fcpReported => _fcpReported;
+  double get fcpTime => _fcpTime;
+
+  // Expose FP tracking state
+  bool get fpReported => _fpReported;
+  double get fpTime => _fpTime;
+
+  /// Gets the current LCP element if it's still connected to the DOM
+  Element? get currentLCPElement {
+    final WeakReference<Element>? lcpRef =
+        _currentRouteMetrics?.currentLCPElement;
+    if (lcpRef != null) {
+      final element = lcpRef.target;
+      if (element != null && element.isConnected) {
+        return element;
+      }
+    }
+    return null;
+  }
+
+  /// Gets performance metrics for a specific route
+  RoutePerformanceMetrics? getRouteMetrics(String routePath) {
+    return _routeMetrics[routePath];
+  }
+
+  /// Gets all route performance metrics
+  Map<String, RoutePerformanceMetrics> get allRouteMetrics =>
+      Map.unmodifiable(_routeMetrics);
+
+  /// The background color for viewport, default to transparent.
+  /// This determines the background color of the WebF widget content area.
+  final Color? background;
+
+  /// The width of WebF Widget.
+  /// Default: the value of max-width in constraints.
+  /// This allows you to explicitly set the width of the WebF rendering area regardless of parent constraints.
+  final double? viewportWidth;
+
+  /// The height of WebF Widget.
+  /// Default: the value of max-height in constraints.
+  /// This allows you to explicitly set the height of the WebF rendering area regardless of parent constraints.
+  final double? viewportHeight;
+
+  /// The methods of the webFNavigateDelegation help you implement custom behaviors that are triggered
+  /// during a webf view's process of loading, and completing a navigation request.
+  ///
+  /// Use this to intercept and handle navigation events such as page redirects or link clicks.
+  ///
+  /// Can be set via the setup() callback when using WebFControllerManager or directly on the controller.
+  WebFNavigationDelegate? _navigationDelegate;
+
+  WebFNavigationDelegate get navigationDelegate =>
+      _navigationDelegate ?? WebFNavigationDelegate();
+
+  set navigationDelegate(WebFNavigationDelegate? delegate) {
+    _navigationDelegate = delegate;
+    // Update the view's navigation delegate if view is already initialized
+    if (_view != null) {
+      _view!.navigationDelegate = delegate;
+    }
+  }
+
+  /// Specify the running thread for your JavaScript codes.
+  /// Default value: DedicatedThread();
+  ///
+  /// [DedicatedThread] : Executes your JavaScript code in a dedicated thread.
+  ///   Advantage: Ideal for developers building applications with hundreds of DOM elements in JavaScript,
+  ///     where common user interactions like scrolling and swiping do not heavily depend on the JavaScript.
+  ///   Disadvantages: Increase communicate overhead since the JavaScript is runs in a separate thread.
+  ///     Data exchanges between Dart and JavaScript requires mutex and synchronization.
+  ///
+  /// [DedicatedThreadGroup] : Executes multiple JavaScript contexts in a single thread.
+  ///     Rather than creating a new thread for each WebF instance, this option allows placing multiple WebF instances and their JavaScript contexts
+  ///     into one dedicated thread.
+  ///   Advantage: JavaScript contexts in the same group can share global class and string data, reducing initialization time
+  ///     for new WebF instances and their JavaScript contexts in this thread.
+  ///   Disadvantages: Since all group members run in the same thread, one can block the others, even if they are not strong related.
+  ///
+  /// [FlutterUIThread] : Executes your JavaScript code within the Flutter UI thread.
+  ///   Advantage: This is the best mode for minimizing communication time between Dart and JavaScript, especially when you have animations
+  ///     controlled by JavaScript and rendered by Flutter. If you're building animations influenced by user interactions, like figure gestures,
+  ///     setting the runningThread to [FlutterUIThread] is the optimal choice.
+  ///   Disadvantages: Any executing of JavaScript will block the executing of Dart codes.
+  ///     If a JavaScript function takes longer than a single frame, it could cause lag, as all Dart code executing will be blocked by your JavaScript.
+  ///     Be mindful of JavaScript executing times when using this mode.
+  ///
+  final WebFThread? runningThread;
+
+  /// Callback triggered when a network error occurs during loading.
+  ///
+  /// Use this to handle and possibly recover from network failures when loading resources.
+  LoadErrorHandler? onLoadError;
+
+  /// Callback triggered when the app is fully loaded, including DOM, CSS, JavaScript, and images.
+  ///
+  /// This is equivalent to the window.onload event in web browsers and indicates all resources
+  /// have been loaded and rendered.
+  LoadHandler? onLoad;
+
+  /// Callback triggered when the app's DOM and CSS have finished loading.
+  ///
+  /// This is equivalent to the DOMContentLoaded event in web browsers and fires when the initial
+  /// HTML document has been completely loaded and parsed, without waiting for stylesheets,
+  /// images, and subframes to finish loading.
+  /// See: https://developer.mozilla.org/en-US/docs/Web/API/Document/DOMContentLoaded_event
+  LoadHandler? onDOMContentLoaded;
+
+  /// Callback triggered after the controller is fully initialized but before content loading.
+  ///
+  /// This callback provides an opportunity to perform setup tasks after the WebF controller
+  /// has been initialized with all its core components, but before any content has been evaluated.
+  /// Use this for early controller configuration, such as setting up custom JavaScript APIs or
+  /// initializing features that need to be available when the page loads.
+  ///
+  /// Since this is executed during the controller's initialization phase, any asynchronous operations
+  /// performed here will block the controller initialization completion (controlledInitCompleter),
+  /// ensuring your setup is complete before any content begins loading.
+  ///
+  /// ```dart
+  /// WebFController(
+  ///   onControllerInit: (controller) async {
+  ///     // Perform early setup before any content loads
+  ///     await controller.methodChannel.invokeMethod('registerCustomAPI', {...});
+  ///   }
+  /// )
+  /// ```
+  OnControllerInit? onControllerInit;
+
+  /// Callback triggered when a JavaScript error occurs during loading.
+  ///
+  /// Use this to catch and handle JavaScript execution errors in the web content.
+  JSErrorHandler? onJSError;
+
+  // HttpClientInterceptor support removed; use Dio interceptors via `dioInterceptors` instead.
+
+  /// Parser for handling and potentially transforming URIs within WebF.
+  ///
+  /// This can be used to customize how URLs are resolved, redirected, or rewritten
+  /// before they are processed by the WebF engine.
+  UriParser? uriParser;
+
+  /// Remote resources (HTML, CSS, JavaScript, Images, and other content loadable via WebFBundle)
+  /// that can be pre-loaded before WebF is mounted in Flutter.
+  ///
+  /// Use this property to reduce loading times when a WebF application attempts to load external
+  /// resources. Pre-loading can significantly improve startup performance, especially for frequently
+  /// accessed resources.
+  final List<WebFBundle>? preloadedBundles;
+
+  /// The initial cookies to set for the JavaScript environment.
+  ///
+  /// These cookies will be available to JavaScript and network requests from the start.
+  final List<Cookie>? initialCookies;
+
+  /// Cookie manager that provides methods to manipulate cookies.
+  ///
+  /// Allows developers to create, read, update, and delete cookies with full control.
+  late CookieManager cookieManager;
+
+  /// Combined network options (cache + adapter) with per-platform overrides.
+  ///
+  /// This replaces the separate `enableHttpCache` and `dioHttpClientAdapter*` fields
+  /// to centralize network configuration in a single place and support platform
+  /// customization.
+  final WebFNetworkOptions? networkOptions;
+
+  /// Additional Dio interceptors to install for this controller's Dio instance.
+  ///
+  /// Interceptors are appended after WebF's built-in cookie/cache interceptor so they can
+  /// add headers, logging, or custom behaviors. Set this before first network usage.
+  ///
+  /// Example:
+  ///   controller.dioInterceptors = [LogInterceptor(responseBody: false)];
+  List<Interceptor>? dioInterceptors;
+
+  /// Options for HTTP logging (PrettyDioLogger) when Dio networking is used.
+  ///
+  /// When provided, these options customize the PrettyDioLogger interceptor
+  /// installed on the per-context Dio instance created by WebF.
+  /// Defaults to enabled in debug mode with headers logged and bodies disabled.
+  final HttpLoggerOptions? httpLoggerOptions;
+
+  // enableHttpCache is now part of `networkOptions`.
+
+  /// The default route path for the hybrid router in WebF.
+  ///
+  /// Sets the initial path that the router will navigate to when the application starts.
+  /// This is the entry point for the hybrid routing system in WebF.
+  String? initialRoute;
+
+  /// The default route state for the hybrid router in WebF.
+  ///
+  /// Users can read this value by webf.hybridRouter.state when loading by initialRoute path.
+  Map<String, dynamic>? initialState;
+
+  /// A Navigator observer that notifies RouteAwares of changes to the state of their route.
+  ///
+  /// The RouteObserver is essential for the hybrid routing system, enabling WebF to
+  /// subscribe to Flutter route changes and maintain synchronization between Flutter
+  /// navigation and WebF's routing system.
+  final RouteObserver<ModalRoute<void>>? routeObserver;
+
+  /// If true the content should size itself to avoid the onscreen keyboard
+  /// whose height is defined by the ambient [FlutterView]'s
+  /// [FlutterView.viewInsets] `bottom` property.
+  ///
+  /// For example, if there is an onscreen keyboard displayed above the widget,
+  /// the view can be resized to avoid overlapping the keyboard, which prevents
+  /// widgets inside the view from being obscured by the keyboard.
+  ///
+  /// Defaults to true.
+  final bool resizeToAvoidBottomInsets;
+
+  /// The routing table for the WebF hybrid router.
+  ///
+  /// Maps route paths to Flutter widgets, enabling the hybrid navigation system where
+  /// routes can be handled by either WebF content or native Flutter components.
+  /// This allows seamless integration between WebF-rendered content and Flutter widgets.
+  Map<String, SubViewBuilder>? routes;
+
+  static final Map<double, WebFController?> _controllerMap = {};
+
+  /// The loading mode for WebF content.
+  ///
+  /// Controls how resources are loaded and when execution occurs.
+  /// Default is standard mode where everything is loaded and executed when mounted.
+  WebFLoadingMode mode = WebFLoadingMode.preloading;
+
+  static WebFController? getControllerOfJSContextId(double? contextId) {
+    if (!_controllerMap.containsKey(contextId)) {
+      return null;
+    }
+
+    return _controllerMap[contextId];
+  }
+
+  static Map<double, WebFController?> getControllerMap() {
+    return _controllerMap;
+  }
+
+  /// Prints the render object tree for debugging purposes.
+  ///
+  /// @param routePath Optional path to a specific route whose render tree should be printed.
+  ///                 If null or matches initialRoute, prints the root render object tree.
+  ///                 Otherwise prints the render tree of the specified hybrid route view.
+  ///
+  /// On desktop platforms (macOS/Windows/Linux), this method also writes the render object tree to a file
+  /// in the user's Documents directory (or app documents directory fallback) with a timestamp.
+  Future<void> printRenderObjectTree(String? routePath) async {
+    final result = await dumpRenderObjectTree(
+      routePath,
+      writeToFile: Platform.isMacOS || Platform.isWindows || Platform.isLinux,
+      printToConsole: true,
+    );
+    if (result == null) {
+      debugPrint('Render object tree is empty.');
+      return;
+    }
+    if (result.savedFilePath != null) {
+      debugPrint('Render object tree written to: ${result.savedFilePath}');
+    }
+  }
+
+  Future<RenderObjectTreeDumpResult?> dumpRenderObjectTree(
+    String? routePath, {
+    bool writeToFile = false,
+    bool printToConsole = false,
+  }) async {
+    String? renderObjectTreeString;
+    final bool shouldUseRootRenderTree =
+        routePath == null || routePath == initialRoute;
+
+    if (shouldUseRootRenderTree) {
+      renderObjectTreeString = view.getRootRenderObject()?.toStringDeep();
+    } else {
+      final RouterLinkElement? routeLinkElement =
+          view.getHybridRouterView(routePath);
+      renderObjectTreeString = routeLinkElement?.getRenderObjectTree();
+      if (renderObjectTreeString == null || renderObjectTreeString.isEmpty) {
+        debugPrint(
+          'No hybrid route render tree found for "$routePath"; falling back to the root render tree.',
+        );
+        renderObjectTreeString = view.getRootRenderObject()?.toStringDeep();
+      }
+    }
+
+    if (renderObjectTreeString == null || renderObjectTreeString.isEmpty) {
+      return null;
+    }
+
+    String? savedFilePath;
+    if (writeToFile) {
+      try {
+        savedFilePath = await writeRenderTreeDumpToFile(
+          renderObjectTreeString,
+          routePath: routePath,
+        );
+      } catch (e) {
+        debugPrint('Failed to write render object tree to file: $e');
+      }
+    }
+
+    if (printToConsole) {
+      debugPrint(renderObjectTreeString);
+    }
+
+    return RenderObjectTreeDumpResult(
+      text: renderObjectTreeString,
+      savedFilePath: savedFilePath,
+    );
+  }
+
+  /// Prints the render object tree for debugging purposes.
+  ///
+  /// @param routePath Optional path to a specific route whose render tree should be printed.
+  ///                 If null or matches initialRoute, prints the root DOM tree.
+  ///                 Otherwise prints the render tree of the specified hybrid route view.
+  void printDOMTree(String? routePath) {
+    if (routePath == null || routePath == initialRoute) {
+      debugPrint(view.document.toStringDeep());
+    } else {
+      RouterLinkElement? routeLinkElement = view.getHybridRouterView(routePath);
+      String? domTree = routeLinkElement?.toStringDeep();
+      if (domTree == null || domTree.isEmpty) {
+        debugPrint(
+          'No hybrid route DOM tree found for "$routePath"; falling back to the root DOM tree.',
+        );
+        domTree = view.document.toStringDeep();
+      }
+      debugPrint(domTree);
+    }
+  }
+
+  /// Callback triggered when the title of the document changes.
+  ///
+  /// This is invoked when the document title is updated through JavaScript,
+  /// allowing the app to reflect title changes in the UI.
+  TitleChangedHandler? onTitleChanged;
+
+  /// Callback triggered when the Largest Contentful Paint (LCP) occurs.
+  /// LCP is a Core Web Vitals metric that measures loading performance.
+  /// This callback may be called multiple times as larger content elements are rendered.
+  /// The callback provides the LCP time in milliseconds since navigation start.
+  LCPHandler? onLCP;
+
+  /// Callback triggered once when the Largest Contentful Paint (LCP) metric is finalized.
+  /// This happens when user interaction occurs (click, tap, keyboard input) or when the page is hidden.
+  /// The callback provides the final LCP time in milliseconds since navigation start.
+  LCPHandler? onLCPFinal;
+
+  /// Callback triggered when the First Contentful Paint (FCP) occurs.
+  /// FCP is a Core Web Vitals metric that measures the time from when the page starts loading
+  /// to when any part of the page's content is rendered on the screen.
+  /// The callback provides the FCP time in milliseconds since navigation start.
+  FCPHandler? onFCP;
+
+  /// Callback triggered when the First Paint (FP) occurs.
+  /// FP measures the time from when the page starts loading to when the browser renders
+  /// anything visually different from what was on the screen before navigation.
+  /// This includes non-default background colors, borders, box shadows, or any visible content.
+  /// The callback provides the FP time in milliseconds since navigation start.
+  FPHandler? onFP;
+
+  /// Route-aware callbacks for performance metrics
+  /// These callbacks include the route path along with the timing information
+  RouteLCPHandler? onRouteLCP;
+  RouteLCPHandler? onRouteLCPFinal;
+  RouteFCPHandler? onRouteFCP;
+  RouteFPHandler? onRouteFP;
+
+  /// Callback triggered when LCP is finalized and content verification is performed.
+  /// This callback provides content information about what was actually rendered when LCP occurred.
+  ContentVerificationHandler? onLCPContentVerification;
+
+  WebFMethodChannel? _methodChannel;
+
+  /// Gets the JavaScript channel for this controller.
+  ///
+  /// This property provides access to the JavaScript channel that enables
+  /// bidirectional communication between Dart and JavaScript. The channel
+  /// is automatically created and initialized when first accessed.
+  ///
+  /// Usage:
+  /// ```dart
+  /// // Set up a method call handler
+  /// controller.javascriptChannel.onMethodCall = (String method, dynamic args) async {
+  ///   if (method == 'getData') {
+  ///     return {'result': 'some data'};
+  ///   }
+  ///   return null;
+  /// };
+  ///
+  /// // Invoke a method in JavaScript
+  /// await controller.javascriptChannel.invokeMethod('updateUI', {'theme': 'dark'});
+  /// ```
+  WebFJavaScriptChannel get javascriptChannel {
+    if (_methodChannel == null || _methodChannel is! WebFJavaScriptChannel) {
+      _methodChannel = WebFJavaScriptChannel();
+      WebFMethodChannel.setJSMethodCallCallback(this);
+    }
+    return _methodChannel as WebFJavaScriptChannel;
+  }
+
+  JSLogHandler? onJSLog;
+
+  ui.FlutterView? _ownerFlutterView;
+
+  ui.FlutterView? get ownerFlutterView => _ownerFlutterView;
+
+  final List<HybridRoutePageContext> _buildContextStack = [];
+
+  /// Get current attached buildContexts.
+  /// Especially useful to detect how many hybrid route pages attached to the Flutter tree.
+  List<HybridRoutePageContext> get buildContextStack => _buildContextStack;
+
+  void pushNewBuildContext(
+      {required BuildContext context,
+      required String routePath,
+      required Object? state}) {
+    _buildContextStack.add(HybridRoutePageContext(routePath, context, state));
+
+    // Initialize performance metrics for this route if not already present
+    if (!_routeMetrics.containsKey(routePath)) {
+      _routeMetrics[routePath] = RoutePerformanceMetrics(routePath);
+      // Initialize the navigation start time for the new route
+      _routeMetrics[routePath]!.navigationStartTime = DateTime.now();
+      // Capture the initial evaluated state when route is pushed
+      _routeMetrics[routePath]!.initialEvaluatedState = evaluated;
+    }
+  }
+
+  void popBuildContext({BuildContext? context, String? routePath}) {
+    if (_buildContextStack.isNotEmpty) {
+      String? removedPath;
+      if (context != null) {
+        assert(routePath != null);
+        _buildContextStack.removeWhere((ctx) {
+          if (ctx.path == routePath) {
+            removedPath = ctx.path;
+            return true;
+          }
+          return false;
+        });
+      } else {
+        final removed = _buildContextStack.removeLast();
+        removedPath = removed.path;
+      }
+
+      // Clean up metrics for the removed route
+      if (removedPath != null && _routeMetrics.containsKey(removedPath)) {
+        _routeMetrics[removedPath]?.dispose();
+        _routeMetrics.remove(removedPath);
+      }
+    }
+  }
+
+  final Set<WebFState> _rootState = {};
+
+  WebFState? get state {
+    final stateFinder = _rootState.where((state) => state.mounted == true);
+    return stateFinder.isEmpty ? null : stateFinder.last;
+  }
+
+  void attachWebFState(WebFState state) {
+    _rootState.add(state);
+  }
+
+  void removeWebFState(WebFState state) {
+    _rootState.remove(state);
+  }
+
+  UniqueKey key = UniqueKey();
+
+  HybridRoutePageContext? get currentBuildContext =>
+      _buildContextStack.isNotEmpty ? _buildContextStack.last : null;
+
+  HybridRoutePageContext? get rootBuildContext =>
+      _buildContextStack.isNotEmpty ? _buildContextStack.first : null;
+
+  bool? _darkModeOverride;
+
+  // Allow overriding system dark mode and ensure styles update when effect changes.
+  set darkModeOverride(value) {
+    // Effective value before change
+    bool? before = isDarkMode;
+
+    _darkModeOverride = value;
+
+    // Effective value after change
+    bool? after = isDarkMode;
+
+    if (before != after) {
+      final String scheme = after == true ? 'dark' : 'light';
+      view.window.dispatchEvent(ColorSchemeChangeEvent(scheme));
+      // Notify native Blink CSS about the new color-scheme value so that
+      // prefers-color-scheme media queries re-evaluate against the updated
+      // environment, in addition to Dart-side style updates.
+      final Pointer<Void>? page = getAllocatedPage(view.contextId);
+      if (page != null) {
+        final Pointer<Utf8> schemePtr = scheme.toNativeUtf8();
+        nativeOnColorSchemeChanged(page, schemePtr, scheme.length);
+        malloc.free(schemePtr);
+      }
+      view.document.recalculateStyleImmediately();
+    } else {}
+  }
+
+  get darkModeOverride => _darkModeOverride;
+
+  /// Whether the current UI mode is dark mode.
+  ///
+  /// Returns true if dark mode is explicitly overridden to true via darkModeOverride
+  /// or if the platform brightness is not light.
+  bool? get isDarkMode {
+    if (_darkModeOverride != null) {
+      return _darkModeOverride;
+    }
+    final ui.PlatformDispatcher dispatcher =
+        ownerFlutterView?.platformDispatcher ?? ui.PlatformDispatcher.instance;
+    return dispatcher.platformBrightness == Brightness.dark;
+  }
+
+  Map<String, WebFBundle>? _preloadBundleIndex;
+
+  /// Retrieves a preloaded bundle that matches the given URL.
+  ///
+  /// Returns the WebFBundle if it exists in the preloaded bundles list, or null if not found.
+  WebFBundle? getPreloadBundleFromUrl(String url) {
+    return _preloadBundleIndex?[url];
+  }
+
+  void _initializePreloadBundle() {
+    if (preloadedBundles == null) return;
+    _preloadBundleIndex = {};
+    for (var bundle in preloadedBundles!) {
+      _preloadBundleIndex![bundle.url] = bundle;
+    }
+  }
+
+  /// Adds preloaded bundles to the controller.
+  ///
+  /// This method allows manually adding WebFBundles to the preloaded bundles list.
+  /// Useful for programmatically preloading resources after controller initialization.
+  ///
+  /// @param bundles A list of WebFBundle objects to add as preloaded resources
+  void addPreloadedBundle(WebFBundle bundle) {
+    _preloadBundleIndex ??= {};
+    _preloadBundleIndex![bundle.url] = bundle;
+  }
+
+  // The view entrypoint bundle.
+  WebFBundle? _entrypoint;
+
+  WebFBundle? get entrypoint => _entrypoint;
+  ui.Size? _viewportSize;
+
+  ui.Size? get viewportSize => _viewportSize;
+
+  Completer controlledInitCompleter = Completer();
+  Completer controllerPreloadingCompleter = Completer();
+  Completer controllerPreRenderingCompleter = Completer();
+  Completer controllerOnLoadCompleter = Completer();
+  Completer controllerOnDOMContentLoadedCompleter = Completer();
+  Completer viewportLayoutCompleter = Completer();
+
+  WebFController({
+    bool enableDebug = false,
+    bool enableBlink = false,
+    WebFBundle? bundle,
+    WebFThread? runningThread,
+    this.background,
+    this.viewportWidth,
+    this.viewportHeight,
+    this.onLoad,
+    this.onDOMContentLoaded,
+    this.onLoadError,
+    this.onControllerInit,
+    this.onJSError,
+    this.onLCP,
+    this.onLCPFinal,
+    this.onFCP,
+    this.onFP,
+    this.onLCPContentVerification,
+    this.uriParser,
+    this.preloadedBundles,
+    this.initialCookies,
+    this.initialRoute,
+    this.initialState,
+    this.routeObserver,
+    this.routes,
+    this.resizeToAvoidBottomInsets = true,
+    this.networkOptions,
+    this.dioInterceptors,
+    this.httpLoggerOptions,
+  })  : _entrypoint = bundle,
+        runningThread = runningThread ?? DedicatedThread() {
+    // Record constructor phase
+    _loadingState.recordPhase(LoadingState.phaseConstructor, parameters: {
+      'bundle': bundle?.url ?? 'null',
+      'enableDebug': enableDebug,
+      'runningThread': runningThread.runtimeType.toString(),
+      'viewportWidth': viewportWidth,
+      'viewportHeight': viewportHeight,
+    });
+
+    _initializePreloadBundle();
+    cookieManager = CookieManager();
+
+    _view = WebFViewController(
+        background: background,
+        enableDebug: enableDebug,
+        enableBlink: enableBlink,
+        rootController: this,
+        runningThread: this.runningThread!,
+        navigationDelegate: navigationDelegate,
+        initialCookies: initialCookies);
+
+    _view!.initialize().then((_) async {
+      _loadingState.recordPhase(LoadingState.phaseInit, parameters: {
+        'contextId': view.contextId,
+      });
+
+      // Auto-start performance tracking for the waterfall chart.
+      // Only start if not already recording to avoid clearing data from a
+      // prior controller init (e.g., inspector panel's own controller).
+      if (!PerformanceTracker.instance.enabled) {
+        PerformanceTracker.instance.startSession();
+      }
+
+      final double contextId = view.contextId;
+      // Register the loading state dumper for this context
+      LoadingStateRegistry.instance.register(contextId, _loadingState);
+
+      _module = WebFModuleController(this, contextId);
+
+      if (bundle != null) {
+        HistoryModule historyModule =
+            module.moduleManager.getModule<HistoryModule>('History')!;
+        historyModule.add(bundle);
+      }
+
+      assert(!_controllerMap.containsKey(contextId),
+          'found exist contextId of WebFController, contextId: $contextId');
+      _controllerMap[contextId] = this;
+
+      // HttpClientInterceptor removed; HttpOverrides setup no longer required.
+
+      uriParser ??= UriParser();
+
+      flushUICommand(view, nullptr);
+
+      if (onControllerInit != null) {
+        await onControllerInit!(this);
+      }
+
+      controlledInitCompleter.complete();
+    });
+  }
+
+  WebFViewController? _view;
+
+  /// The view controller that manages the visual rendering and DOM operations.
+  ///
+  /// Provides access to the document, window, viewport, and other rendering components.
+  WebFViewController get view {
+    return _view!;
+  }
+
+  WebFModuleController? _module;
+
+  /// The module controller that manages JavaScript modules and features.
+  ///
+  /// Provides access to browser-like APIs such as history, timers, storage, and other modules.
+  WebFModuleController get module {
+    return _module!;
+  }
+
+  /// Queue of previous history items for the standard Web History API implementation.
+  ///
+  /// Used for tracking and enabling backward navigation with window.history.back().
+  final Queue<HistoryItem> previousHistoryStack = Queue();
+
+  /// Queue of next history items for the standard Web History API implementation.
+  ///
+  /// Used for tracking and enabling forward navigation with window.history.forward().
+  final Queue<HistoryItem> nextHistoryStack = Queue();
+
+  /// Storage for session data that implements the standard Web Storage API's sessionStorage.
+  ///
+  /// This maintains key-value pairs accessible through JavaScript's window.sessionStorage,
+  /// which persists for the duration of the page session but is cleared when the page is closed.
+  final Map<String, String> sessionStorage = {};
+
+  /// Access to the standard Web History API implementation.
+  ///
+  /// Provides methods like back(), forward(), pushState(), etc., following the web standard.
+  HistoryModule get history => module.moduleManager.getModule('History')!;
+
+  /// Access to WebF's hybrid history implementation that integrates with Flutter navigation.
+  ///
+  /// Enables synchronized navigation between WebF content and native Flutter routes.
+  HybridHistoryModule get hybridHistory =>
+      module.moduleManager.getModule('HybridHistory')!;
+
+  /// Creates a fallback URI for WebF bundle content.
+  ///
+  /// Generates a URI in the format `vm://bundle/[id]` that serves as a virtual origin
+  /// for WebF content that doesn't have a real URL. This is important for maintaining
+  /// same-origin security policies in the JavaScript environment.
+  ///
+  /// @param id Optional JavaScript context ID to make the URI unique per context
+  /// @return A URI object representing the virtual bundle location
+  static Uri fallbackBundleUri([double? id]) {
+    // The fallback origin uri, like `vm://bundle/0`
+    return Uri(scheme: 'vm', host: 'bundle', path: id != null ? '$id' : null);
+  }
+
+  /// Flag indicating whether fonts are currently being loaded.
+  ///
+  /// When true, indicates that system fonts are in the process of loading,
+  /// which may affect text rendering in the WebF content.
+  bool isFontsLoading = false;
+
+  /// Watches for font loading events and updates the isFontsLoading flag.
+  ///
+  /// This method is registered as a listener with the system fonts service to track
+  /// when fonts are being loaded, which can affect text layout and rendering.
+  void _watchFontLoading() {
+    isFontsLoading = true;
+    SchedulerBinding.instance.scheduleFrameCallback((_) {
+      isFontsLoading = false;
+    });
+  }
+
+  String? get _url {
+    HistoryModule historyModule =
+        module.moduleManager.getModule<HistoryModule>('History')!;
+    return historyModule.stackTop?.url;
+  }
+
+  Uri? get _uri {
+    HistoryModule historyModule =
+        module.moduleManager.getModule<HistoryModule>('History')!;
+    return historyModule.stackTop?.resolvedUri;
+  }
+
+  /// The current URL of the WebF content.
+  ///
+  /// Returns the URL string from the current history item or an empty string if not available.
+  String get url => _url ?? '';
+
+  /// The current URI of the WebF content as a Uri object.
+  ///
+  /// Returns the resolved Uri from the current history item or null if not available.
+  /// Useful for accessing and manipulating individual components of the current URL.
+  Uri? get uri => _uri;
+
+  void _replaceCurrentHistory(WebFBundle bundle) {
+    HistoryModule historyModule =
+        module.moduleManager.getModule<HistoryModule>('History')!;
+    previousHistoryStack.clear();
+    historyModule.add(bundle);
+  }
+
+  /// Reloads the current WebF content.
+  ///
+  /// This performs a full reload of the current content, including disposing the old
+  /// environment and re-executing the entrypoint JavaScript/HTML.
+  Future<WebFController?> reload() async {
+    assert(!_view!.disposed, 'WebF have already disposed');
+
+    String? currentPageId =
+        WebFControllerManager.instance.getControllerName(this);
+
+    if (currentPageId == null) return null;
+
+    // if (isFlutterAttached) {
+    //   throw FlutterError('Could not reload a attached controller');
+    // }
+
+    return WebFControllerManager.instance.addOrUpdateControllerWithLoading(
+        name: currentPageId,
+        bundle: entrypoint!,
+        forceReplace: true,
+        mode: mode);
+  }
+
+  /// Loads content from the provided WebFBundle.
+  ///
+  /// Unloads any existing content, adds the bundle to history, and executes the new content.
+  /// This is the main method for loading new content into WebF.
+  Future<WebFController?> load(WebFBundle bundle) async {
+    assert(!_view!.disposed, 'WebF have already disposed');
+
+    String? currentPageId =
+        WebFControllerManager.instance.getControllerName(this);
+
+    if (currentPageId == null) return null;
+
+    // Record load start phase
+    _loadingState.recordPhase(LoadingState.phaseLoadStart, parameters: {
+      'bundle': bundle.url,
+      'currentPageId': currentPageId,
+    });
+
+    // Reset performance metrics for the current route
+    if (_currentRouteMetrics != null) {
+      final metrics = _currentRouteMetrics!;
+      // Reset LCP tracking for new page load
+      metrics.lcpReported = false;
+      metrics.largestContentfulPaintSize = 0;
+      metrics.lastReportedLCPTime = 0;
+      metrics.currentLCPElement = null;
+      metrics.navigationStartTime = DateTime.now();
+
+      // Reset FCP tracking for new page load
+      metrics.fcpReported = false;
+      metrics.fcpTime = 0;
+
+      // Reset FP tracking for new page load
+      metrics.fpReported = false;
+      metrics.fpTime = 0;
+
+      // Capture the initial evaluated state for new page load
+      metrics.initialEvaluatedState = evaluated;
+    }
+
+    // Cancel any existing timer
+    _currentRouteMetrics?.lcpAutoFinalizeTimer?.cancel();
+
+    // Set up new auto-finalization timer
+    if (_currentRouteMetrics != null) {
+      _currentRouteMetrics!.lcpAutoFinalizeTimer =
+          Timer(Duration(seconds: 5), () {
+        if (!_currentRouteMetrics!.lcpReported) {
+          finalizeLCP();
+        }
+      });
+    }
+
+    return WebFControllerManager.instance.addOrUpdateControllerWithLoading(
+        name: currentPageId, bundle: bundle, forceReplace: true, mode: mode);
+  }
+
+  PreloadingStatus preloadStatus = PreloadingStatus.none;
+
+  VoidCallback? _onPreloadingFinished;
+  int unfinishedPreloadResources = 0;
+
+  /// Preloads remote resources into memory and begins execution when the WebF widget is mounted into the Flutter tree.
+  /// If the entrypoint is an HTML file, the HTML will be parsed, and its elements will be organized into a DOM tree.
+  /// CSS files loaded through `<style>` and `<link>` elements will be parsed and the calculated styles applied to the corresponding DOM elements.
+  /// However, JavaScript code will not be executed in this mode.
+  /// If the entrypoint is a JavaScript file, WebF only do loading until the WebF widget is mounted into the Flutter tree.
+  /// Using this mode can save up to 50% of loading time, while maintaining a high level of compatibility with the standard mode.
+  /// It's safe and recommended to use this mode for all types of pages.
+  Future<void> preload(WebFBundle bundle,
+      {ui.Size? viewportSize, Duration? timeout}) async {
+    if (preloadStatus == PreloadingStatus.done) return;
+    controllerPreloadingCompleter = Completer();
+
+    await controlledInitCompleter.future;
+
+    if (preloadStatus != PreloadingStatus.none) return;
+    if (preRenderingStatus != PreRenderingStatus.none) return;
+
+    // Record preload phase
+    _loadingState.recordPhase(LoadingState.phasePreload, parameters: {
+      'bundle': bundle.url,
+      'viewportSize': viewportSize?.toString() ?? 'null',
+      'timeout': timeout?.inMilliseconds ?? 'default',
+    });
+
+    _viewportSize = viewportSize;
+    // Update entrypoint.
+    _entrypoint = bundle;
+    _replaceCurrentHistory(bundle);
+    view.document.initializeCookieJarForUrl(url);
+
+    mode = WebFLoadingMode.preloading;
+
+    // Initialize document, window and the documentElement.
+    flushUICommand(view, nullptr);
+
+    // Set the status value for preloading.
+    preloadStatus = PreloadingStatus.preloading;
+
+    view.document.preloadViewportSize = _viewportSize;
+    // Manually initialize the root element and create renderObjects for each elements.
+    view.document.documentElement!
+        .applyStyle(view.document.documentElement!.style);
+
+    run() async {
+      bool isTimeout = false;
+      try {
+        Timer(timeout ?? Duration(seconds: 30), () {
+          if (controllerPreloadingCompleter.isCompleted) return;
+          isTimeout = true;
+          preloadStatus = PreloadingStatus.fail;
+          controllerPreloadingCompleter.completeError(
+              FlutterError('Preloading failed with exceed timeout limits'));
+        });
+
+        await Future.wait([_resolveEntrypoint(), module.initialize()]);
+
+        if (isTimeout) return;
+
+        if (_entrypoint!.isJavascript || _entrypoint!.isBytecode) {
+          // Convert the JavaScript code into bytecode.
+          if (_entrypoint!.isJavascript) {
+            await _entrypoint!.preProcessing(view.contextId);
+          }
+
+          if (isTimeout) return;
+
+          preloadStatus = PreloadingStatus.done;
+          _loadingState.recordPhase(LoadingState.phasePreloadEnd);
+          controllerPreloadingCompleter.complete();
+        } else if (_entrypoint!.isHTML) {
+          // Ensure custom binding object constructors are installed before parsing HTML (scripts may run during parse).
+          await view.installBindingObjectConstructorsIfNeeded();
+
+          // Evaluate the HTML entry point, and loading the stylesheets and scripts.
+          final parseEndCallback = _loadingState
+              .recordPhaseStart(LoadingState.phaseParseHTML, parameters: {
+            'dataSize': _entrypoint!.data!.length,
+            'preload': true,
+          });
+          try {
+            await parseHTML(view.contextId, _entrypoint!.data!);
+            parseEndCallback();
+          } catch (e) {
+            parseEndCallback();
+            rethrow;
+          }
+
+          if (isTimeout) return;
+
+          // Initialize document, window and the documentElement.
+          flushUICommand(view, view.window.pointer!);
+
+          if (view.document.scriptRunner.hasPreloadScripts()) {
+            _onPreloadingFinished = () {
+              if (isTimeout) return;
+
+              preloadStatus = PreloadingStatus.done;
+              _loadingState.recordPhase(LoadingState.phasePreloadEnd);
+              controllerPreloadingCompleter.complete();
+            };
+          } else {
+            preloadStatus = PreloadingStatus.done;
+            _loadingState.recordPhase(LoadingState.phasePreloadEnd);
+            controllerPreloadingCompleter.complete();
+          }
+        }
+      } catch (e, stack) {
+        if (isTimeout) return;
+
+        preloadStatus = PreloadingStatus.fail;
+        // Record the preloadError phase with error details
+        _loadingState.recordPhase(LoadingState.phasePreloadError, parameters: {
+          'error': e.toString(),
+          'stackTrace': stack.toString(),
+        });
+        _handlingLoadingError(e, stack);
+        controllerPreloadingCompleter.completeError(e, stack);
+      }
+    }
+
+    run();
+
+    return controllerPreloadingCompleter.future;
+  }
+
+  Object? _loadingError;
+
+  Object? get loadingError => _loadingError;
+
+  bool get hasLoadingError => _loadingError != null;
+
+  void _handlingLoadingError(Object error, StackTrace stack) {
+    // Record the error in the loading state dumper
+    _loadingState.recordCurrentPhaseError(error, stackTrace: stack);
+
+    if (onLoadError != null) {
+      onLoadError!(FlutterError(error.toString()), stack);
+    }
+    _loadingError = '$error\n$stack';
+  }
+
+  PreRenderingStatus preRenderingStatus = PreRenderingStatus.none;
+
+  /// The `aggressive` mode is a step further than `preloading`, cutting down up to 90% of loading time for optimal performance.
+  /// This mode simulates the instantaneous response of native Flutter pages but may require modifications in the existing web codes for compatibility.
+  /// In this mode, all remote resources are loaded and executed similarly to the standard mode, but with an offline-like behavior.
+  /// Given that JavaScript is executed in this mode, properties like `clientWidth` and `clientHeight` from the viewModule always return 0. This is because
+  /// no layout or paint processes occur during preRendering.
+  /// If your application depends on viewModule properties, ensure that the related code is placed within the `load` and `DOMContentLoaded` or `prerendered` event callbacks of the window.
+  /// These callbacks are triggered once the WebF widget is mounted into the Flutter tree.
+  /// Apps optimized for this mode remain compatible with both `standard` and `preloading` modes.
+  /// Aggressively preloads and prerenders content from the provided WebFBundle.
+  ///
+  /// This mode loads, parses, and executes content in a simulated environment before mounting.
+  /// Can improve loading performance by up to 90%, but requires special handling for dimension-dependent code.
+  Future<void> preRendering(WebFBundle bundle, {Duration? timeout}) async {
+    if (preRenderingStatus == PreRenderingStatus.done) return;
+
+    controllerPreRenderingCompleter = Completer();
+
+    await controlledInitCompleter.future;
+
+    if (preRenderingStatus != PreRenderingStatus.none) return;
+    if (preloadStatus != PreloadingStatus.none) return;
+
+    // Record prerendering phase
+    _loadingState.recordPhase(LoadingState.phasePreRender, parameters: {
+      'bundle': bundle.url,
+      'timeout': timeout?.inMilliseconds ?? 'default',
+    });
+
+    // Update entrypoint.
+    _entrypoint = bundle;
+    _replaceCurrentHistory(bundle);
+    view.document.initializeCookieJarForUrl(url);
+
+    mode = WebFLoadingMode.preRendering;
+
+    // Initialize document, window and the documentElement.
+    flushUICommand(view, nullptr);
+
+    // Set the status value for preloading.
+    preRenderingStatus = PreRenderingStatus.preloading;
+
+    // Manually initialize the root element and create renderObjects for each elements.
+    view.document.documentElement!
+        .applyStyle(view.document.documentElement!.style);
+
+    run() async {
+      bool isTimeout = false;
+
+      try {
+        Timer(timeout ?? Duration(seconds: 20), () {
+          if (controllerPreRenderingCompleter.isCompleted) return;
+          isTimeout = true;
+          preRenderingStatus = PreRenderingStatus.fail;
+          controllerPreRenderingCompleter.completeError(
+              FlutterError('Prerendering failed with exceed timeout limits'));
+        });
+
+        // Preparing the entrypoint
+        await Future.wait([_resolveEntrypoint(), module.initialize()]);
+
+        if (isTimeout) return;
+
+        // Stop the animation frame
+        // Pause the animation timeline.
+        pause();
+
+        view.window.addEventListener(EVENT_LOAD, (event) async {
+          preRenderingStatus = PreRenderingStatus.done;
+        });
+
+        if (_entrypoint!.isJavascript || _entrypoint!.isBytecode) {
+          // Convert the JavaScript code into bytecode.
+          if (_entrypoint!.isJavascript) {
+            await _entrypoint!.preProcessing(view.contextId);
+          }
+        }
+
+        if (isTimeout) return;
+
+        preRenderingStatus = PreRenderingStatus.evaluate;
+
+        // Evaluate the entry point, and loading the stylesheets and scripts.
+        await evaluateEntrypoint();
+
+        if (isTimeout) return;
+
+        evaluated = true;
+
+        view.flushPendingCommandsPerFrame();
+      } catch (e, stack) {
+        if (isTimeout) return;
+        preRenderingStatus = PreRenderingStatus.fail;
+        _handlingLoadingError(e, stack);
+        controllerPreRenderingCompleter.complete();
+        return;
+      }
+
+      // If there are no <script /> elements, finish this prerendering process.
+      if (!view.document.scriptRunner.hasPendingScripts()) {
+        controllerPreRenderingCompleter.complete();
+        return;
+      }
+    }
+
+    run();
+
+    return controllerPreRenderingCompleter.future;
+  }
+
+  String? getResourceContent(String? url) {
+    WebFBundle? entrypoint = _entrypoint;
+    if (url == this.url && entrypoint != null && entrypoint.isResolved) {
+      return utf8.decode(entrypoint.data!);
+    }
+    return null;
+  }
+
+  bool _paused = false;
+
+  bool get paused => _paused;
+
+  final List<PendingCallback> _pendingCallbacks = [];
+
+  void pushPendingCallbacks(PendingCallback callback) {
+    _pendingCallbacks.add(callback);
+  }
+
+  void flushPendingCallbacks() {
+    for (int i = 0; i < _pendingCallbacks.length; i++) {
+      _pendingCallbacks[i]();
+    }
+    _pendingCallbacks.clear();
+  }
+
+  void reactiveWidgetElements() {}
+
+  // Pause all timers and callbacks if page are invisible.
+  /// Pauses all timers, animations, and JavaScript execution.
+  ///
+  /// Useful when the WebF content is not visible or the app is in the background.
+  /// Reduces resource usage by suspending non-essential operations.
+  void pause() {
+    if (_paused) return;
+    _paused = true;
+    module.pauseAnimationFrame();
+    view.stopAnimationsTimeLine();
+  }
+
+  // Resume all timers and callbacks if page now visible.
+  /// Resumes all timers, animations, and JavaScript execution that were paused.
+  ///
+  /// Call this when the WebF content becomes visible again or the app returns to the foreground.
+  /// Restores normal operation of the paused WebF environment.
+  void resume() {
+    if (!_paused) return;
+
+    _paused = false;
+    flushPendingCallbacks();
+    module.resumeAnimationFrame();
+    view.resumeAnimationTimeline();
+    SchedulerBinding.instance.scheduleFrame();
+  }
+
+  bool _disposed = false;
+
+  bool get disposed => _disposed;
+
+  /// Disposes the WebF controller and all associated resources.
+  ///
+  /// Cleans up native resources, listeners, and cached data. Should be called when
+  /// the controller is no longer needed to prevent memory leaks.
+  Future<void> dispose() async {
+    // Record dispose phase
+    _loadingState.recordPhase(LoadingState.phaseDispose, parameters: {
+      'contextId': _view?.contextId ?? 'null',
+    });
+
+    // Unregister the loading state dumper
+    if (_view != null) {
+      LoadingStateRegistry.instance.unregister(_view!.contextId);
+    }
+
+    PaintingBinding.instance.systemFonts.removeListener(_watchFontLoading);
+    removeHttpOverrides(contextId: _view!.contextId);
+    await _view?.dispose();
+    _module?.dispose();
+    if (_view?.inited == true) {
+      _controllerMap[_view!.contextId] = null;
+      _controllerMap.remove(_view!.contextId);
+    }
+
+    if (isFlutterAttached) {
+      BuildContext? rootBuildContext = this.rootBuildContext?.context;
+      if (rootBuildContext != null) {
+        WebFState state =
+            (rootBuildContext as StatefulElement).state as WebFState;
+        state.requestForUpdate(ControllerDisposeChangeReason());
+      }
+    }
+
+    // Clean up all route metrics
+    for (final metrics in _routeMetrics.values) {
+      metrics.dispose();
+    }
+    _routeMetrics.clear();
+
+    // To release entrypoint bundle memory.
+    _entrypoint?.dispose();
+
+    routes = null;
+    _loadingError = null;
+    _disposed = true;
+  }
+
+  String get origin {
+    Uri uri = Uri.parse(url);
+    return '${uri.scheme}://${uri.host}:${uri.port}';
+  }
+
+  Future<void> executeEntrypoint(
+      {bool shouldResolve = true,
+      bool shouldEvaluate = true,
+      AnimationController? animationController}) async {
+    if (_entrypoint != null && shouldResolve) {
+      await controlledInitCompleter.future;
+      await Future.wait([_resolveEntrypoint(), _module!.initialize()]);
+      if (_entrypoint!.isResolved && shouldEvaluate) {
+        await evaluateEntrypoint(animationController: animationController);
+      } else {
+        throw FlutterError('Unable to resolve $_entrypoint');
+      }
+    } else {
+      throw FlutterError('Entrypoint is empty.');
+    }
+  }
+
+  // Resolve the entrypoint bundle.
+  // In general you should use executeEntrypoint, which including resolving and evaluating.
+  Future<void> _resolveEntrypoint() async {
+    assert(!_view!.disposed, 'WebF have already disposed');
+
+    WebFBundle? bundleToLoad = _entrypoint;
+    if (bundleToLoad == null) {
+      // Do nothing if bundle is null.
+      return;
+    }
+
+    // Record resolve entrypoint phase
+    final endResolve = _loadingState
+        .recordPhaseStart(LoadingState.phaseResolveEntrypoint, parameters: {
+      'bundle': bundleToLoad.url,
+      'baseUrl': url,
+    });
+
+    // Network request tracking is handled by NetworkBundle itself in obtainData()
+    // to avoid duplicate entries and to capture more detailed stages
+
+    // Resolve the bundle, including network download or other fetching ways.
+    try {
+      await bundleToLoad.resolve(baseUrl: url, uriParser: uriParser);
+
+      await bundleToLoad.obtainData(view.contextId);
+
+      // NetworkBundle handles its own request tracking with detailed stages
+
+      endResolve();
+    } catch (e, stack) {
+      // Network error tracking is also handled by NetworkBundle
+
+      // Record the error with context
+      _loadingState.recordError(LoadingState.phaseResolveEntrypoint, e,
+          stackTrace: stack,
+          context: {
+            'bundle': bundleToLoad.url,
+            'baseUrl': url,
+            'errorType': e.runtimeType.toString(),
+          });
+
+      endResolve();
+      // Not to dismiss this error.
+      rethrow;
+    }
+  }
+
+  bool _isFlutterAttached = false;
+
+  bool get isFlutterAttached => _isFlutterAttached;
+
+  /// Attaches the WebF controller to a Flutter BuildContext.
+  ///
+  /// This connects the WebF environment to the Flutter widget tree, enabling rendering
+  /// and interactions. Must be called before content can be displayed.
+  void attachToFlutter(BuildContext context) {
+    // Record attach to flutter phase
+    _loadingState.recordPhase(LoadingState.phaseAttachToFlutter, parameters: {
+      'routePath': initialRoute ?? '/',
+      'hasInitialState': initialState != null,
+    });
+
+    _ownerFlutterView = View.of(context);
+    updateTextSettingsFromContext(context);
+    view.attachToFlutter(context);
+    PaintingBinding.instance.systemFonts.addListener(_watchFontLoading);
+    _isFlutterAttached = true;
+    pushNewBuildContext(
+        context: context, routePath: initialRoute ?? '/', state: initialState);
+
+    // Notify DevTools service about controller attach
+    try {
+      ChromeDevToolsService.unifiedService.switchToController(this);
+    } catch (e) {
+      // Ignore DevTools errors in production builds
+      if (kDebugMode) {
+        devToolsLogger.warning('DevTools notification failed', e);
+      }
+    }
+  }
+
+  /// Detaches the WebF controller from the Flutter widget tree.
+  ///
+  /// Disconnects the WebF environment from Flutter, stopping rendering and interactions.
+  /// Should be called when the WebF content is no longer displayed or needed.
+  void detachFromFlutter(BuildContext? context) {
+    // Record detach from flutter phase
+    _loadingState.recordPhase(LoadingState.phaseDetachFromFlutter, parameters: {
+      'routePath': initialRoute ?? '/',
+    });
+
+    // Notify DevTools service about controller detach BEFORE actual detach
+    try {
+      // Clear DOM panel immediately when controller detaches
+      ChromeDevToolsService.unifiedService.clearDOMPanel();
+    } catch (e) {
+      // Ignore DevTools errors in production builds
+      if (kDebugMode) {
+        devToolsLogger.warning('DevTools DOM clear failed', e);
+      }
+    }
+
+    view.detachFromFlutter();
+    PaintingBinding.instance.systemFonts.removeListener(_watchFontLoading);
+    _isFlutterAttached = false;
+    _ownerFlutterView = null;
+    popBuildContext(context: context, routePath: initialRoute ?? '/');
+
+    // Reset loading state when controller is detached from Flutter so that
+    // subsequent attachments start with a clean slate. This also re-arms
+    // per-load once-only listeners.
+    _loadingState.reset();
+  }
+
+  // Execute the content from entrypoint bundle.
+  Future<void> evaluateEntrypoint(
+      {AnimationController? animationController}) async {
+    // @HACK: Execute JavaScript scripts will block the Flutter UI Threads.
+    // Listen for animationController listener to make sure to execute Javascript after route transition had completed.
+    if (animationController != null) {
+      animationController.addStatusListener((AnimationStatus status) async {
+        if (status == AnimationStatus.completed) {
+          await evaluateEntrypoint();
+        }
+      });
+      return;
+    }
+
+    assert(!_view!.disposed, 'WebF have already disposed');
+    if (_entrypoint != null) {
+      WebFBundle entrypoint = _entrypoint!;
+      double contextId = _view!.contextId;
+      assert(entrypoint.isResolved,
+          'The webf bundle $entrypoint is not resolved to evaluate.');
+
+      // Ensure custom binding object constructors are installed before any entrypoint scripts run.
+      await _view!.installBindingObjectConstructorsIfNeeded();
+
+      // Record evaluate start phase
+      final endEvaluate = _loadingState
+          .recordPhaseStart(LoadingState.phaseEvaluateStart, parameters: {
+        'entrypoint': entrypoint.url,
+        'contentType': entrypoint.contentType.toString(),
+        'isJavascript': entrypoint.isJavascript,
+        'isBytecode': entrypoint.isBytecode,
+        'isHTML': entrypoint.isHTML,
+      });
+
+      // entry point start parse.
+      _view!.document.parsing = true;
+
+      Uint8List data = entrypoint.data!;
+      if (entrypoint.isJavascript) {
+        assert(isValidUTF8String(data),
+            'The JavaScript codes should be in UTF-8 encoding format');
+        // Prefer sync decode in loading entrypoint.
+        final scriptEndCallback = _loadingState
+            .recordPhaseStart(LoadingState.phaseEvaluateScripts, parameters: {
+          'url': url,
+          'loadedFromCache': entrypoint.loadedFromCache,
+          'cacheKey': entrypoint.cacheKey ?? 'null',
+          'dataSize': data.length,
+        });
+        try {
+          await evaluateScripts(contextId, data,
+              url: url,
+              cacheKey: entrypoint.cacheKey,
+              loadedFromCache: entrypoint.loadedFromCache);
+          scriptEndCallback();
+        } catch (e) {
+          scriptEndCallback();
+          rethrow;
+        }
+      } else if (entrypoint.isBytecode) {
+        final bytecodeEndCallback = _loadingState
+            .recordPhaseStart(LoadingState.phaseEvaluateScripts, parameters: {
+          'type': 'bytecode',
+          'dataSize': data.length,
+        });
+        try {
+          await evaluateQuickjsByteCode(contextId, data, url: url);
+          bytecodeEndCallback();
+        } catch (e) {
+          bytecodeEndCallback();
+          rethrow;
+        }
+      } else if (entrypoint.isHTML) {
+        assert(isValidUTF8String(data),
+            'The HTML codes should be in UTF-8 encoding format');
+        final parseEndCallback = _loadingState
+            .recordPhaseStart(LoadingState.phaseParseHTML, parameters: {
+          'dataSize': data.length,
+        });
+        try {
+          await parseHTML(contextId, data);
+          parseEndCallback();
+        } catch (e) {
+          parseEndCallback();
+          rethrow;
+        }
+      } else if (entrypoint.contentType.primaryType == 'text') {
+        // Fallback treating text content as JavaScript.
+        try {
+          assert(isValidUTF8String(data),
+              'The JavaScript codes should be in UTF-8 encoding format');
+          await evaluateScripts(contextId, data,
+              loadedFromCache: entrypoint.loadedFromCache,
+              cacheKey: entrypoint.cacheKey,
+              url: url);
+        } catch (error) {
+          widgetLogger.warning(
+              'Fallback to execute JavaScript content of $url', error);
+          rethrow;
+        }
+      } else {
+        // The resource type can not be evaluated.
+        throw FlutterError('Can\'t evaluate content of $url');
+      }
+
+      // entry point end parse.
+      _view!.document.parsing = false;
+
+      // Record evaluate complete
+      endEvaluate();
+      _loadingState
+          .recordPhase(LoadingState.phaseEvaluateComplete, parameters: {
+        'parsing': false,
+      });
+
+      // Should check completed when parse end.
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        // UICommand list is read in the next frame, so we need to determine whether there are labels
+        // such as images and scripts after it to check is completed.
+        checkCompleted();
+      });
+      SchedulerBinding.instance.scheduleFrame();
+    }
+  }
+
+  // window.onload
+  bool _isComplete = false;
+
+  bool get isComplete => _isComplete;
+
+  bool isCanceled = false;
+
+  // window.onDOMContentLoaded
+  bool _isDOMComplete = false;
+
+  bool get isDOMComplete => _isDOMComplete;
+
+  bool evaluated = false;
+
+  // https://github.com/WebKit/WebKit/blob/main/Source/WebCore/loader/FrameLoader.cpp#L840
+  // Check whether the document has been loaded, such as html has parsed (main of JS has evaled) and images/scripts has loaded.
+  void checkCompleted() {
+    // Are we still parsing?
+    if (_view!.document.parsing) return;
+
+    // Are all script element complete?
+    if (_view!.document.isDelayingDOMContentLoadedEvent) return;
+
+    if (_isDOMComplete) return;
+
+    _view!.document.readyState = DocumentReadyState.interactive;
+    dispatchDOMContentLoadedEvent();
+    _isDOMComplete = true;
+
+    controllerOnDOMContentLoadedCompleter.complete();
+
+    // Still waiting for images/scripts?
+    if (_view!.document.hasPendingRequest) return;
+
+    // Still waiting for elements that don't go through a FrameLoader?
+    if (_view!.document.isDelayingLoadEvent) return;
+
+    if (_isComplete) return;
+
+    // The page load was complete
+    _isComplete = true;
+    controllerOnLoadCompleter.complete();
+
+    dispatchWindowLoadEvent();
+    _view!.document.readyState = DocumentReadyState.complete;
+  }
+
+  // Check whether the load was complete in preload mode.
+  void checkPreloadCompleted() {
+    if (unfinishedPreloadResources == 0 && _onPreloadingFinished != null) {
+      _onPreloadingFinished!();
+    }
+  }
+
+  bool _domContentLoadedEventDispatched = false;
+
+  /// Dispatches the DOMContentLoaded event to the document and window.
+  ///
+  /// This is equivalent to the standard Web DOMContentLoaded event, which fires when the
+  /// initial HTML document has been completely loaded and parsed, without waiting for
+  /// stylesheets, images, and other resources to finish loading.
+  ///
+  /// Also calls the onDOMContentLoaded callback if one is provided.
+  void dispatchDOMContentLoadedEvent() {
+    if (_domContentLoadedEventDispatched) return;
+
+    _domContentLoadedEventDispatched = true;
+
+    // Record DOM content loaded phase
+    _loadingState.recordPhase(LoadingState.phaseDOMContentLoaded, parameters: {
+      'readyState': _view!.document.readyState.toString(),
+    });
+
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (_view == null) return;
+      Event event = Event(EVENT_DOM_CONTENT_LOADED);
+      EventTarget window = view.window;
+      window.dispatchEvent(event);
+      _view!.document.dispatchEvent(event);
+      if (onDOMContentLoaded != null) {
+        onDOMContentLoaded!(this);
+      }
+    });
+    SchedulerBinding.instance.scheduleFrame();
+
+    // In prerendering mode, consider DOMContentLoaded as the completion signal.
+    // This avoids blocking on image/network requests so that
+    // WebFControllerManager.addWithPrerendering can resolve promptly.
+    if (mode == WebFLoadingMode.preRendering) {
+      if (!controllerPreRenderingCompleter.isCompleted) {
+        controllerPreRenderingCompleter.complete();
+      }
+    }
+  }
+
+  bool _loadEventDispatched = false;
+
+  /// Dispatches the load event to the window.
+  ///
+  /// This is equivalent to the standard Web window.onload event, which fires when the
+  /// whole page has loaded, including all dependent resources such as stylesheets and images.
+  ///
+  /// Also calls the onLoad callback if one is provided.
+  void dispatchWindowLoadEvent() {
+    if (_loadEventDispatched) return;
+    _loadEventDispatched = true;
+
+    // Record window load phase
+    _loadingState.recordPhase(LoadingState.phaseWindowLoad, parameters: {
+      'readyState': _view!.document.readyState.toString(),
+      'isComplete': _isComplete,
+    });
+
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      // DOM element are created at next frame, so we should trigger onload callback in the next frame.
+      Event event = Event(EVENT_LOAD);
+      _view!.window.dispatchEvent(event);
+
+      if (onLoad != null) {
+        onLoad!(this);
+      }
+    });
+    SchedulerBinding.instance.scheduleFrame();
+  }
+
+  bool _preloadEventDispatched = false;
+
+  /// Dispatches the preloaded event to the window.
+  ///
+  /// This custom WebF event fires when content has been preloaded using the
+  /// preloading mode. JavaScript code can listen for this event to know
+  /// when preloading has completed.
+  void dispatchWindowPreloadedEvent() {
+    if (_preloadEventDispatched) return;
+    _preloadEventDispatched = true;
+    Event event = Event(EVENT_PRELOADED);
+    view.window.dispatchEvent(event);
+  }
+
+  bool _preRenderedEventDispatched = false;
+
+  /// Dispatches the prerendered event to the window.
+  ///
+  /// This custom WebF event fires when content has been prerendered using the
+  /// preRendering mode. JavaScript code can listen for this event to know
+  /// when prerendering has completed and perform any operations that depend
+  /// on accurate viewport dimensions.
+  void dispatchWindowPreRenderedEvent() {
+    if (_preRenderedEventDispatched) return;
+    _preRenderedEventDispatched = true;
+    Event event = Event(EVENT_PRERENDERED);
+    view.window.dispatchEvent(event);
+  }
+
+  /// Dispatches the resize event to the window.
+  ///
+  /// This is equivalent to the standard Web window.onresize event, which fires when
+  /// the document view has been resized. In WebF, this occurs when the viewport size
+  /// changes due to device rotation, window resizing, or other layout changes.
+  ///
+  /// Returns a Future that completes when the event has been dispatched.
+  Future<void> dispatchWindowResizeEvent() async {
+    Event event = Event(EVENT_RESIZE);
+    await view.window.dispatchEvent(event);
+  }
+
+  @override
+  String toStringShort() {
+    String status = mode == WebFLoadingMode.preloading
+        ? preloadStatus.toString()
+        : preRenderingStatus.toString();
+    return '${describeIdentity(this)} (disposed: $disposed, evaluated: $evaluated, status: $status)';
+  }
+
+  /// Initializes performance tracking by recording the navigation start time.
+  /// Called when the viewport is first laid out.
+  void initializePerformanceTracking(DateTime startTime) {
+    // If no route is attached yet, initialize metrics for the initial route
+    if (_buildContextStack.isEmpty) {
+      final defaultRoute = initialRoute ?? '/';
+      if (!_routeMetrics.containsKey(defaultRoute)) {
+        _routeMetrics[defaultRoute] = RoutePerformanceMetrics(defaultRoute);
+      }
+    }
+
+    if (_currentRouteMetrics == null || _currentRouteMetrics!.lcpReported) {
+      return;
+    }
+
+    final metrics = _currentRouteMetrics!;
+    metrics.navigationStartTime = startTime;
+    metrics.lcpReported = false;
+    metrics.largestContentfulPaintSize = 0;
+    metrics.lastReportedLCPTime = 0;
+    metrics.currentLCPElement = null;
+
+    metrics.fpReported = false;
+    metrics.fpTime = 0;
+
+    // Reset FCP tracking as well
+    metrics.fcpReported = false;
+    metrics.fcpTime = 0;
+
+    // Capture the initial evaluated state when performance tracking starts
+    metrics.initialEvaluatedState = evaluated;
+
+    // Cancel any existing timer
+    metrics.lcpAutoFinalizeTimer?.cancel();
+
+    // Set up auto-finalization timer with a 5 second delay
+    // This ensures we wait long enough for all LCP candidates to be reported
+    metrics.lcpAutoFinalizeTimer = Timer(Duration(seconds: 10), () {
+      // Auto-finalize LCP if no user interaction has occurred
+      if (!metrics.lcpReported) {
+        finalizeLCP();
+      }
+    });
+  }
+
+  /// Called when an element is removed from the DOM.
+  /// Checks if it was the current LCP element and resets tracking if so.
+  void notifyElementRemoved(Element element) {
+    if (_currentRouteMetrics == null) return;
+
+    final metrics = _currentRouteMetrics!;
+    if (metrics.currentLCPElement != null &&
+        metrics.currentLCPElement!.target == element) {
+      // The current LCP element was removed, reset tracking
+      metrics.largestContentfulPaintSize = 0;
+      metrics.currentLCPElement = null;
+    }
+  }
+
+  /// Reports a potential LCP candidate.
+  /// @param element The element being reported as an LCP candidate
+  /// @param contentSize The visible area of the element in pixels
+  void reportLCPCandidate(Element element, double contentSize) {
+    if (_currentRouteMetrics == null) return;
+
+    final metrics = _currentRouteMetrics!;
+    // Don't report if already finalized or not initialized
+    if (metrics.lcpReported || metrics.navigationStartTime == null) return;
+
+    // Check if the current LCP element has been removed from the DOM
+    if (metrics.currentLCPElement != null) {
+      final currentElement = metrics.currentLCPElement!.target;
+      if (currentElement == null || !currentElement.isConnected) {
+        // Reset LCP tracking if the current LCP element was removed
+        metrics.largestContentfulPaintSize = 0;
+        metrics.currentLCPElement = null;
+      }
+    }
+
+    // Only report if this is a larger content element
+    if (contentSize > metrics.largestContentfulPaintSize) {
+      metrics.largestContentfulPaintSize = contentSize;
+      metrics.currentLCPElement = WeakReference(element);
+      final lcpTime = DateTime.now()
+          .difference(metrics.navigationStartTime!)
+          .inMilliseconds
+          .toDouble();
+      metrics.lastReportedLCPTime = lcpTime;
+
+      // Fire the progressive onLCP callback
+      if (onLCP != null) {
+        onLCP!(lcpTime, metrics.initialEvaluatedState);
+      }
+
+      // Fire the route-aware callback
+      if (onRouteLCP != null) {
+        onRouteLCP!(lcpTime, metrics.routePath);
+      }
+
+      // Record LCP candidate as a phase
+      _loadingState
+          .recordPhase(LoadingState.phaseLargestContentfulPaint, parameters: {
+        'timeSinceNavigationStart': lcpTime,
+        'largestContentSize': contentSize,
+        'elementTag': element.tagName,
+        'routePath': metrics.routePath,
+        'isCandidate': true, // Mark this as a candidate, not final
+      });
+    }
+  }
+
+  /// Finalizes LCP measurement when user interaction occurs.
+  /// After this is called, no more LCP candidates will be reported.
+  void finalizeLCP() {
+    if (_currentRouteMetrics == null) return;
+
+    try {
+      final metrics = _currentRouteMetrics!;
+      // Cancel the auto-finalization timer if it's still running
+      metrics.lcpAutoFinalizeTimer?.cancel();
+      metrics.lcpAutoFinalizeTimer = null;
+
+      if (!metrics.lcpReported && metrics.navigationStartTime != null) {
+        // Record LCP finalization phase
+        _loadingState.finalizeLCP();
+
+        // Use the last reported LCP time instead of calculating a new time
+        // This ensures onLCPFinal reports the actual LCP candidate time, not the finalization time
+        if (onLCPFinal != null) {
+          onLCPFinal!(
+              metrics.lastReportedLCPTime, metrics.initialEvaluatedState);
+        }
+
+        // Fire the route-aware callback
+        if (onRouteLCPFinal != null) {
+          onRouteLCPFinal!(metrics.lastReportedLCPTime, metrics.routePath);
+        }
+
+        // Perform content verification when LCP is finalized
+        final contentInfo = ContentVerification.getContentInfo(this);
+        metrics.lcpContentInfo = contentInfo;
+
+        // Fire the content verification callback
+        if (onLCPContentVerification != null) {
+          onLCPContentVerification!(contentInfo, metrics.routePath);
+        }
+      }
+      metrics.lcpReported = true;
+    } catch (_) {}
+  }
+
+  /// Reports First Contentful Paint (FCP) when the first content is rendered.
+  /// This should be called when the first text, image, SVG, or non-white canvas content is painted.
+  void reportFCP() {
+    if (_currentRouteMetrics == null) return;
+
+    final metrics = _currentRouteMetrics!;
+    // Don't report if already reported or not initialized
+    if (metrics.fcpReported || metrics.navigationStartTime == null) return;
+
+    // Record first contentful paint phase
+    _loadingState
+        .recordPhase(LoadingState.phaseFirstContentfulPaint, parameters: {
+      'timeSinceNavigationStart': DateTime.now()
+          .difference(metrics.navigationStartTime!)
+          .inMilliseconds,
+    });
+
+    metrics.fcpReported = true;
+    metrics.fcpTime = DateTime.now()
+        .difference(metrics.navigationStartTime!)
+        .inMilliseconds
+        .toDouble();
+
+    // Fire the FCP callback
+    if (onFCP != null) {
+      onFCP!(metrics.fcpTime, metrics.initialEvaluatedState);
+    }
+
+    // Fire the route-aware callback
+    if (onRouteFCP != null) {
+      onRouteFCP!(metrics.fcpTime, metrics.routePath);
+    }
+  }
+
+  /// Reports First Paint (FP) when the first visual change is rendered.
+  /// This includes any non-default background colors, borders, box shadows, or any visible content.
+  /// FP always occurs before or at the same time as FCP.
+  void reportFP() {
+    if (_currentRouteMetrics == null) return;
+
+    final metrics = _currentRouteMetrics!;
+    // Don't report if already reported or not initialized
+    if (metrics.fpReported || metrics.navigationStartTime == null) return;
+
+    // Record first paint phase
+    _loadingState.recordPhase(LoadingState.phaseFirstPaint, parameters: {
+      'timeSinceNavigationStart': DateTime.now()
+          .difference(metrics.navigationStartTime!)
+          .inMilliseconds,
+    });
+
+    metrics.fpReported = true;
+    metrics.fpTime = DateTime.now()
+        .difference(metrics.navigationStartTime!)
+        .inMilliseconds
+        .toDouble();
+
+    // Fire the FP callback
+    if (onFP != null) {
+      onFP!(metrics.fpTime, metrics.initialEvaluatedState);
+    }
+
+    // Fire the route-aware callback
+    if (onRouteFP != null) {
+      onRouteFP!(metrics.fpTime, metrics.routePath);
+    }
+  }
+
+  /// Dumps the loading state of the WebFController across its lifecycle.
+  ///
+  /// Returns a formatted ASCII timeline showing critical loading phases from initialization
+  /// through evaluation, including timestamps and parameters for each phase.
+  ///
+  /// @param options Controls what information to include in the dump.
+  /// @return A LoadingStateDump object containing the loading state data.
+  LoadingStateDump dumpLoadingState({LoadingStateDumpOptions? options}) {
+    return _loadingState.dump(options: options);
+  }
+}

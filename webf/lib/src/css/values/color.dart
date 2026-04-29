@@ -1,0 +1,717 @@
+/*
+ * Copyright (C) 2024-present The OpenWebF Company. All rights reserved.
+ * Licensed under GNU GPL with Enterprise exception.
+ */
+/*
+ * Copyright (C) 2019-2022 The Kraken authors. All rights reserved.
+ * Copyright (C) 2022-2024 The WebF authors. All rights reserved.
+ */
+
+// ignore_for_file: constant_identifier_names
+
+import 'dart:math';
+
+import 'package:quiver/collection.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter_silkweb/src/foundation/debug_flags.dart';
+import 'package:flutter_silkweb/src/foundation/logger.dart';
+import 'package:flutter_silkweb/src/foundation/string_parsers.dart';
+import 'package:flutter/painting.dart';
+import 'package:flutter_silkweb/css.dart';
+
+/// Only support Basic color keywords and Extended color keywords,
+/// for CSS system colors is not recommended for use after CSS3
+const Map<String, int> _namedColors = {
+  'transparent': 0x00000000,
+  'aliceblue': 0xFFF0F8FF,
+  'antiquewhite': 0xFFFAEBD7,
+  'aqua': 0xFF00FFFF,
+  'aquamarine': 0xFF7FFFD4,
+  'azure': 0xFFF0FFFF,
+  'beige': 0xFFF5F5DC,
+  'bisque': 0xFFFFE4C4,
+  'black': 0xFF000000,
+  'blanchedalmond': 0xFFFFEBCD,
+  'blue': 0xFF0000FF,
+  'blueviolet': 0xFF8A2BE2,
+  'brown': 0xFFA52A2A,
+  'burlywood': 0xFFDEB887,
+  'cadetblue': 0xFF5F9EA0,
+  'chartreuse': 0xFF7FFF00,
+  'chocolate': 0xFFD2691E,
+  'coral': 0xFFFF7F50,
+  'cornflowerblue': 0xFF6495ED,
+  'cornsilk': 0xFFFFF8DC,
+  'crimson': 0xFFDC143C,
+  'cyan': 0xFF00FFFF,
+  'darkblue': 0xFF00008B,
+  'darkcyan': 0xFF008B8B,
+  'darkgoldenrod': 0xFFB8860B,
+  'darkgray': 0xFFA9A9A9,
+  'darkgreen': 0xFF006400,
+  'darkgrey': 0xFFA9A9A9,
+  'darkkhaki': 0xFFBDB76B,
+  'darkmagenta': 0xFF8B008B,
+  'darkolivegreen': 0xFF556B2F,
+  'darkorange': 0xFFFF8C00,
+  'darkorchid': 0xFF9932CC,
+  'darkred': 0xFF8B0000,
+  'darksalmon': 0xFFE9967A,
+  'darkseagreen': 0xFF8FBC8F,
+  'darkslateblue': 0xFF483D8B,
+  'darkslategray': 0xFF2F4F4F,
+  'darkslategrey': 0xFF2F4F4F,
+  'darkturquoise': 0xFF00CED1,
+  'darkviolet': 0xFF9400D3,
+  'deeppink': 0xFFFF1493,
+  'deepskyblue': 0xFF00BFFF,
+  'dimgray': 0xFF696969,
+  'dimgrey': 0xFF696969,
+  'dodgerblue': 0xFF1E90FF,
+  'firebrick': 0xFFB22222,
+  'floralwhite': 0xFFFFFAF0,
+  'forestgreen': 0xFF228B22,
+  'fuchsia': 0xFFFF00FF,
+  'gainsboro': 0xFFDCDCDC,
+  'ghostwhite': 0xFFF8F8FF,
+  'gold': 0xFFFFD700,
+  'goldenrod': 0xFFDAA520,
+  'gray': 0xFF808080,
+  'green': 0xFF008000,
+  'greenyellow': 0xFFADFF2F,
+  'grey': 0xFF808080,
+  'honeydew': 0xFFF0FFF0,
+  'hotpink': 0xFFFF69B4,
+  'indianred': 0xFFCD5C5C,
+  'indigo': 0xFF4B0082,
+  'ivory': 0xFFFFFFF0,
+  'khaki': 0xFFF0E68C,
+  'lavender': 0xFFE6E6FA,
+  'lavenderblush': 0xFFFFF0F5,
+  'lawngreen': 0xFF7CFC00,
+  'lemonchiffon': 0xFFFFFACD,
+  'lightblue': 0xFFADD8E6,
+  'lightcoral': 0xFFF08080,
+  'lightcyan': 0xFFE0FFFF,
+  'lightgoldenrodyellow': 0xFFFAFAD2,
+  'lightgray': 0xFFD3D3D3,
+  'lightgreen': 0xFF90EE90,
+  'lightgrey': 0xFFD3D3D3,
+  'lightpink': 0xFFFFB6C1,
+  'lightsalmon': 0xFFFFA07A,
+  'lightseagreen': 0xFF20B2AA,
+  'lightskyblue': 0xFF87CEFA,
+  'lightslategray': 0xFF778899,
+  'lightslategrey': 0xFF778899,
+  'lightsteelblue': 0xFFB0C4DE,
+  'lightyellow': 0xFFFFFFE0,
+  'lime': 0xFF00FF00,
+  'limegreen': 0xFF32CD32,
+  'linen': 0xFFFAF0E6,
+  'magenta': 0xFFFF00FF,
+  'maroon': 0xFF800000,
+  'mediumaquamarine': 0xFF66CDAA,
+  'mediumblue': 0xFF0000CD,
+  'mediumorchid': 0xFFBA55D3,
+  'mediumpurple': 0xFF9370DB,
+  'mediumseagreen': 0xFF3CB371,
+  'mediumslateblue': 0xFF7B68EE,
+  'mediumspringgreen': 0xFF00FA9A,
+  'mediumturquoise': 0xFF48D1CC,
+  'mediumvioletred': 0xFFC71585,
+  'midnightblue': 0xFF191970,
+  'mintcream': 0xFFF5FFFA,
+  'mistyrose': 0xFFFFE4E1,
+  'moccasin': 0xFFFFE4B5,
+  'navajowhite': 0xFFFFDEAD,
+  'navy': 0xFF000080,
+  'oldlace': 0xFFFDF5E6,
+  'olive': 0xFF808000,
+  'olivedrab': 0xFF6B8E23,
+  'orange': 0xFFFFA500,
+  'orangered': 0xFFFF4500,
+  'orchid': 0xFFDA70D6,
+  'palegoldenrod': 0xFFEEE8AA,
+  'palegreen': 0xFF98FB98,
+  'paleturquoise': 0xFFAFEEEE,
+  'palevioletred': 0xFFDB7093,
+  'papayawhip': 0xFFFFEFD5,
+  'peachpuff': 0xFFFFDAB9,
+  'peru': 0xFFCD853F,
+  'pink': 0xFFFFC0CB,
+  'plum': 0xFFDDA0DD,
+  'powderblue': 0xFFB0E0E6,
+  'purple': 0xFF800080,
+  'rebeccapurple': 0xFF663399,
+  'red': 0xFFFF0000,
+  'rosybrown': 0xFFBC8F8F,
+  'royalblue': 0xFF4169E1,
+  'saddlebrown': 0xFF8B4513,
+  'salmon': 0xFFFA8072,
+  'sandybrown': 0xFFF4A460,
+  'seagreen': 0xFF2E8B57,
+  'seashell': 0xFFFFF5EE,
+  'sienna': 0xFFA0522D,
+  'silver': 0xFFC0C0C0,
+  'skyblue': 0xFF87CEEB,
+  'slateblue': 0xFF6A5ACD,
+  'slategray': 0xFF708090,
+  'slategrey': 0xFF708090,
+  'snow': 0xFFFFFAFA,
+  'springgreen': 0xFF00FF7F,
+  'steelblue': 0xFF4682B4,
+  'tan': 0xFFD2B48C,
+  'teal': 0xFF008080,
+  'thistle': 0xFFD8BFD8,
+  'tomato': 0xFFFF6347,
+  'turquoise': 0xFF40E0D0,
+  'violet': 0xFFEE82EE,
+  'wheat': 0xFFF5DEB3,
+  'white': 0xFFFFFFFF,
+  'whitesmoke': 0xFFF5F5F5,
+  'yellow': 0xFFFFFF00,
+  'yellowgreen': 0xFF9ACD32,
+};
+
+// CSS Values and Units: https://drafts.csswg.org/css-values-3/#colors
+// CSS Color: https://drafts.csswg.org/css-color-4/
+// ignore: public_member_api_docs
+@pragma('vm:prefer-inline')
+bool _isHexDigit(int cu) {
+  return (cu >= 0x30 && cu <= 0x39) ||
+      (cu >= 0x41 && cu <= 0x46) ||
+      (cu >= 0x61 && cu <= 0x66);
+}
+
+bool _isHexString(String s) {
+  for (int i = 0; i < s.length; i++) {
+    if (!_isHexDigit(s.codeUnitAt(i))) return false;
+  }
+  return true;
+}
+
+List<String> _splitColorArgs(String input) {
+  // Prefer comma-separated format when present, otherwise use whitespace.
+  if (input.contains(',')) {
+    return splitByTopLevelDelimiter(input, 0x2C /* , */);
+  }
+  return splitByAsciiWhitespacePreservingGroups(input);
+}
+
+({String a, String b})? _splitAlphaBySlash(String input) {
+  final List<String> parts = splitByTopLevelDelimiter(input, 0x2F /* / */);
+  if (parts.length == 1) return null;
+  if (parts.length != 2) return null;
+  return (a: parts[0].trim(), b: parts[1].trim());
+}
+
+({String r, String g, String b, String? a})? _parseRgbArgs(String body) {
+  final String trimmed = body.trim();
+  if (trimmed.isEmpty) return null;
+
+  final slash = _splitAlphaBySlash(trimmed);
+  if (slash != null) {
+    final List<String> base = _splitColorArgs(slash.a);
+    if (base.length != 3) return null;
+    final List<String> alphaTokens = _splitColorArgs(slash.b);
+    if (alphaTokens.isEmpty) return null;
+    return (r: base[0], g: base[1], b: base[2], a: alphaTokens.first);
+  }
+
+  final List<String> tokens = _splitColorArgs(trimmed);
+  if (tokens.length == 3) return (r: tokens[0], g: tokens[1], b: tokens[2], a: null);
+  if (tokens.length == 4) return (r: tokens[0], g: tokens[1], b: tokens[2], a: tokens[3]);
+  return null;
+}
+
+({String hue, String? unit, String s, String l, String? a})? _parseHslArgs(String body) {
+  final String trimmed = body.trim();
+  if (trimmed.isEmpty) return null;
+
+  final slash = _splitAlphaBySlash(trimmed);
+  if (slash != null) {
+    final List<String> base = _splitColorArgs(slash.a);
+    if (base.length != 3) return null;
+    final List<String> alphaTokens = _splitColorArgs(slash.b);
+    if (alphaTokens.isEmpty) return null;
+    final ({String hue, String? unit}) hue = _splitHueToken(base[0]);
+    return (hue: hue.hue, unit: hue.unit, s: base[1], l: base[2], a: alphaTokens.first);
+  }
+
+  final List<String> tokens = _splitColorArgs(trimmed);
+  if (tokens.length != 3 && tokens.length != 4) return null;
+  final ({String hue, String? unit}) hue = _splitHueToken(tokens[0]);
+  return (hue: hue.hue, unit: hue.unit, s: tokens[1], l: tokens[2], a: tokens.length == 4 ? tokens[3] : null);
+}
+
+({String hue, String? unit}) _splitHueToken(String token) {
+  final String t = token.trim();
+  final String lower = t.toLowerCase();
+  const List<String> units = <String>['deg', 'rad', 'grad', 'turn'];
+  for (final u in units) {
+    if (lower.endsWith(u) && t.length > u.length) {
+      return (hue: t.substring(0, t.length - u.length), unit: u);
+    }
+  }
+  return (hue: t, unit: null);
+}
+
+final LinkedLruHashMap<String, Color> _cachedParsedColor = LinkedLruHashMap(maximumSize: 100);
+
+/// #123
+/// #123456
+/// rgb(r,g,b)
+/// rgba(r,g,b,a)
+class CSSColor with Diagnosticable {
+  late Color value;
+
+  CSSColor(this.value);
+
+  static const Color transparent = Color(0x00000000);
+  static const Color initial = Color(0xFF000000);
+  static const String INITIAL_COLOR = 'black';
+  static const String RGB = 'rgb';
+  static const String RGBA = 'rgba';
+  static const String HSL = 'hsl';
+  static const String HSLA = 'hsla';
+
+  // Use a preprocessed color to cache.
+  // Example:
+  //   Input = '0 2rpx 4rpx 0 rgba(0,0,0,0.1), 0 25rpx 50rpx 0 rgba(0,0,0,0.15)'
+  //   Output = '0 2rpx 4rpx 0 rgba0, 0 25rpx 50rpx 0 rgba1', with color cached:
+  //     'rgba0' -> Color(0x19000000), 'rgba1' -> Color(0x26000000)
+  // Cache will be terminated after used once.
+
+  static int _colorByte(double channel) =>
+      (channel * 255.0).round().clamp(0, 255).toInt();
+
+  static String convertToHex(Color color) {
+    final String red = _colorByte(color.r).toRadixString(16).padLeft(2, '0');
+    final String green = _colorByte(color.g).toRadixString(16).padLeft(2, '0');
+    final String blue = _colorByte(color.b).toRadixString(16).padLeft(2, '0');
+    return '#$red$green$blue';
+  }
+
+  // Border 3D shading helpers per CSS-style formulas:
+  // Dark (shadow): component × 0.5 → floor
+  // Light (highlight): component + (255 - component) × 0.5 → floor = (component + 255) / 2
+  static Color tranformToDarkColor(Color color) {
+    // Round to nearest: floor(v/2 + 0.5) == (v + 1) >> 1
+    final int r = (_colorByte(color.r) + 1) >> 1;
+    final int g = (_colorByte(color.g) + 1) >> 1;
+    final int b = (_colorByte(color.b) + 1) >> 1;
+    final int a = _colorByte(color.a);
+    return Color.fromARGB(a, r, g, b);
+  }
+
+  static Color transformToLightColor(Color color) {
+    // Round to nearest: round((v + 255) / 2) == (v + 256) >> 1
+    int mixToWhite(int v) => ((v + 256) >> 1);
+    final int r = mixToWhite(_colorByte(color.r));
+    final int g = mixToWhite(_colorByte(color.g));
+    final int b = mixToWhite(_colorByte(color.b));
+    final int a = _colorByte(color.a);
+    return Color.fromARGB(a, r, g, b);
+  }
+
+  static bool isColor(String color) {
+    return color == CURRENT_COLOR ||
+        color == TRANSPARENT ||
+        color == INHERIT ||
+        color.startsWith('#') ||
+        color.startsWith(RGB) ||
+        color.startsWith(HSL) ||
+        _namedColors.containsKey(color);
+  }
+
+  static void clearCachedColorValue(String color) {
+    final String key = color.toLowerCase();
+    // Only log cache clears for var()-driven entries that reference a watched
+    // custom property. This keeps noise low while debugging specific
+    // CSS variable + transition interactions.
+    if (DebugFlags.enableCssVarAndTransitionLogs && key.contains('var(')) {
+      if (DebugFlags.watchedCssVariables.isNotEmpty) {
+        final String? identifier = _extractVarIdentifierFromCacheKey(key);
+        if (identifier != null && DebugFlags.watchedCssVariables.contains(identifier)) {
+          cssLogger.info('[color][cache-clear] key=$key var=$identifier');
+        }
+      }
+      // If watchedCssVariables is empty, skip logging entirely to avoid spam
+      // from generic Tailwind-style utility variables (blur, brightness, etc.).
+    }
+    _cachedParsedColor.remove(key);
+  }
+
+  // Best-effort extractor for the first CSS custom property identifier inside
+  // a cache key that contains a var(...) pattern, e.g.:
+  //   "rgb(var(--tw-bg-opacity))" -> "--tw-bg-opacity"
+  static String? _extractVarIdentifierFromCacheKey(String key) {
+    final int varIndex = key.indexOf('var(--');
+    if (varIndex == -1) return null;
+    final int start = varIndex + 4; // skip "var("
+    int end = start;
+    while (end < key.length) {
+      final int code = key.codeUnitAt(end);
+      if (code == 41 || // ')'
+          code == 44 || // ','
+          code == 32) { // space
+        break;
+      }
+      end++;
+    }
+    if (end <= start) return null;
+    return key.substring(start, end);
+  }
+
+  static CSSColor? resolveColor(String color, RenderStyle renderStyle, String propertyName) {
+    if (color == CURRENT_COLOR) {
+      if (propertyName == COLOR) {
+        return null;
+      }
+      // Update property that deps current color.
+      renderStyle.addColorRelativeProperty(propertyName);
+      return renderStyle.color;
+    }
+    Color? value = parseColor(color, renderStyle: renderStyle, propertyName: propertyName);
+    if (value == null) {
+      return null;
+    }
+    return CSSColor(value);
+  }
+
+  static String tryParserCSSColorWithVariable(
+      String fullColor, String input, RenderStyle renderStyle, String propertyName) {
+    final String replaced = replaceCssVarFunctions(input, (String varString) {
+      var variable = renderStyle.resolveValue(propertyName, varString);
+
+      if (variable is CSSVariable) {
+        String? resolved = renderStyle.getCSSVariable(variable.identifier, '${propertyName}_$fullColor')?.toString();
+
+        return resolved ?? '';
+      }
+      return '';
+    });
+
+    return replaced;
+  }
+
+  static Color? parseColor(String color, {RenderStyle? renderStyle, String? propertyName}) {
+    String originalColor = color.trim();
+    color = originalColor.toLowerCase();
+
+    final String? prop = propertyName;
+    final bool trace = prop != null && DebugFlags.shouldLogTransitionForProp(prop);
+    final bool varDependent = renderStyle != null && color.contains('var(');
+
+    if (trace) {
+      cssLogger.info('[color][parse] property=$prop input="$originalColor" key="$color"');
+    }
+
+    if (color == TRANSPARENT) {
+      if (trace) {
+        cssLogger.info('[color][parse] property=$prop -> transparent');
+      }
+      return CSSColor.transparent;
+    } else if (!varDependent && _cachedParsedColor.containsKey(color)) {
+      if (trace) {
+        cssLogger.info('[color][cache-hit] property=$prop key="$color"');
+      }
+      return _cachedParsedColor[color];
+    }
+
+    Color? parsed;
+    if (color.startsWith('#')) {
+      final String hex = color.substring(1);
+      if (hex.length >= 3 && hex.length <= 8 && _isHexString(hex)) {
+        final String up = hex.toUpperCase();
+        switch (up.length) {
+          case 3:
+            parsed = Color(int.parse('0xFF${_x2(up)}'));
+            break;
+          case 4:
+            final alpha = up[3];
+            final rgb = up.substring(0, 3);
+            parsed = Color(int.parse('0x${_x2(alpha)}${_x2(rgb)}'));
+            break;
+          case 6:
+            parsed = Color(int.parse('0xFF$up'));
+            break;
+          case 8:
+            final alpha = up.substring(6, 8);
+            final rgb = up.substring(0, 6);
+            parsed = Color(int.parse('0x$alpha$rgb'));
+            break;
+        }
+      }
+    } else if (color.startsWith(RGB)) {
+      bool isRgba = color.startsWith(RGBA);
+      String colorBody = originalColor.substring(isRgba ? 5 : 4, color.length - 1);
+
+      final ({String r, String g, String b, String? a})? rgbArgs;
+      if (renderStyle != null && colorBody.contains('var')) {
+        final result = tryParserCSSColorWithVariable(originalColor, colorBody, renderStyle, propertyName ?? '');
+        if (trace) {
+          cssLogger
+              .info('[color][parse] property=$prop rgb-body="$colorBody" resolved="$result"');
+        }
+        rgbArgs = _parseRgbArgs(result);
+      } else {
+        rgbArgs = _parseRgbArgs(colorBody);
+      }
+
+      if (rgbArgs != null) {
+        final double? rgbR = _parseColorPart(rgbArgs.r, 0, 255, renderStyle);
+        final double? rgbG = _parseColorPart(rgbArgs.g, 0, 255, renderStyle);
+        final double? rgbB = _parseColorPart(rgbArgs.b, 0, 255, renderStyle);
+        final double? rgbO = rgbArgs.a != null ? _parseColorPart(rgbArgs.a!, 0, 1, renderStyle) : 1;
+        if (rgbR != null && rgbG != null && rgbB != null && rgbO != null) {
+          parsed = Color.fromRGBO(rgbR.round(), rgbG.round(), rgbB.round(), rgbO);
+        }
+      } else if (trace) {
+        cssLogger.info('[color][parse-failed] property=$prop rgb-body="$colorBody"');
+      }
+    } else if (color.startsWith(HSL)) {
+      bool isHsla = color.startsWith(HSLA);
+      String colorBody = originalColor.substring(isHsla ? 5 : 4, color.length - 1);
+
+      final ({String hue, String? unit, String s, String l, String? a})? hslArgs;
+      if (renderStyle != null && colorBody.contains('var')) {
+        final result = tryParserCSSColorWithVariable(originalColor, colorBody, renderStyle, propertyName ?? '');
+        if (trace) {
+          cssLogger
+              .info('[color][parse] property=$prop hsl-body="$colorBody" resolved="$result"');
+        }
+        hslArgs = _parseHslArgs(result);
+      } else {
+        hslArgs = _parseHslArgs(colorBody);
+      }
+
+      if (hslArgs != null) {
+        final double? hslH = _parseColorHue(hslArgs.hue, hslArgs.unit);
+        final double? hslS = _parseColorPart(hslArgs.s, 0, 1, renderStyle);
+        final double? hslL = _parseColorPart(hslArgs.l, 0, 1, renderStyle);
+        final double? hslA = hslArgs.a != null ? _parseColorPart(hslArgs.a!, 0, 1, renderStyle) : 1;
+        if (hslH != null && hslS != null && hslL != null && hslA != null) {
+          parsed = HSLColor.fromAHSL(hslA, hslH, hslS, hslL).toColor();
+        }
+      } else if (trace) {
+        cssLogger.info('[color][parse-failed] property=$prop hsl-body="$colorBody"');
+      }
+    } else if (_namedColors.containsKey(color)) {
+      parsed = Color(_namedColors[color]!);
+    }
+
+    if (parsed != null) {
+      if (trace) {
+        cssLogger.info(
+            '[color][parsed] property=$prop rgba=${_colorByte(parsed.r)},${_colorByte(parsed.g)},${_colorByte(parsed.b)},a=${parsed.a.cssText()}');
+      }
+      if (!varDependent) {
+        _cachedParsedColor[color] = parsed;
+      } else if (trace) {
+        cssLogger.info('[color][cache-skip] property=$prop key="$color" reason=var-dependent');
+      }
+    } else if (trace) {
+      cssLogger.info('[color][parse-failed] property=$prop input="$originalColor" key="$color"');
+    }
+
+    return parsed;
+  }
+
+  String cssText() {
+    if (value.a < 1) {
+      return 'rgba(${_colorByte(value.r)}, ${_colorByte(value.g)}, ${_colorByte(value.b)}, ${value.a.cssText()})';
+    } else {
+      return 'rgb(${_colorByte(value.r)}, ${_colorByte(value.g)}, ${_colorByte(value.b)})';
+    }
+  }
+
+  @override
+  String toStringShort() {
+    return value.toString();
+  }
+}
+
+/// A color in the CIELAB color space.
+///
+/// The CIELAB color space contains channels for lightness [l],
+/// [a] (red and green opponent values), and [b] (blue and
+/// yellow opponent values.)
+class LabColor {
+  /// Lightness represents the black to white value.
+  ///
+  /// The value ranges from black at `0` to white at `100`.
+  final num l;
+
+  /// The red to green opponent color value.
+  ///
+  /// Green is represented in the negative value range (`-128` to `0`)
+  ///
+  /// Red is represented in the positive value range (`0` to `127`)
+  final num a;
+
+  /// The yellow to blue opponent color value.
+  ///
+  /// Yellow is represented int he negative value range (`-128` to `0`)
+  ///
+  /// Blue is represented in the positive value range (`0` to `127`)
+  final num b;
+
+  /// A color in the CIELAB color space.
+  ///
+  /// [l] must be `>= 0` and `<= 100`.
+  ///
+  /// [a] and [b] must both be `>= -128` and `<= 127`.
+  const LabColor(this.l, this.a, this.b);
+
+  num _toXyz(num value, num referenceWhiteValue) {
+    num cube = pow(value, 3);
+    if (cube > 0.008856) {
+      value = cube;
+    } else {
+      value = (value - 16 / 116) / 7.787;
+    }
+    return value *= referenceWhiteValue;
+  }
+
+  num _toRgb(num value) {
+    if (value > 0.0031308) {
+      value = 1.055 * pow(value, 1 / 2.4) - 0.055;
+    } else {
+      value = value * 12.92;
+    }
+    return value *= 255;
+  }
+
+  RgbColor toRgbColor() {
+    // To xyz color
+    num x = _toXyz(a / 500 + (l + 16) / 116, 95.047) / 100;
+    num y = _toXyz((l + 16) / 116, 100) / 100;
+    num z = _toXyz((l + 16) / 116 - b / 200, 108.883) / 100;
+
+    // To rgb color
+    num rgbR = _toRgb(x * 3.2406 + y * -1.5372 + z * -0.4986);
+    num rgbG = _toRgb(x * -0.9689 + y * 1.8758 + z * 0.0415);
+    num rgbB = _toRgb(x * 0.0557 + y * -0.2040 + z * 1.0570);
+
+    return RgbColor(rgbR, rgbG, rgbB);
+  }
+}
+
+class RgbColor {
+  final num r;
+  final num g;
+  final num b;
+
+  /// Creates a [Color] using a vector describing its red, green, and blue
+  /// values.
+  ///
+  /// The value for [r], [g], and [b] should be in the range between 0 and
+  /// 255 (inclusive).  Values above this range will be assumed to be a value
+  /// of 255, and values below this range will be assumed to be a value of 0.
+  const RgbColor(this.r, this.g, this.b);
+
+  num _toLab(num value, num referenceWhiteValue) {
+    value /= referenceWhiteValue;
+    if (value > 0.008856) {
+      value = pow(value, 1 / 3);
+    } else {
+      value = (7.787 * value) + 16 / 116;
+    }
+    return value;
+  }
+
+  num _toXyz(num value) {
+    if (value > 0.04045) {
+      value = pow((value + 0.055) / 1.055, 2.4);
+    } else {
+      value = value / 12.92;
+    }
+    return value *= 100;
+  }
+
+  LabColor toLabColor() {
+    // To xyz color
+    num xyzR = _toXyz(r / 255);
+    num xyzG = _toXyz(g / 255);
+    num xyzB = _toXyz(b / 255);
+
+    num x = xyzR * 0.4124 + xyzG * 0.3576 + xyzB * 0.1805;
+    num y = xyzR * 0.2126 + xyzG * 0.7152 + xyzB * 0.0722;
+    num z = xyzR * 0.0193 + xyzG * 0.1192 + xyzB * 0.9505;
+
+    // To lab color
+    num labX = _toLab(x, 95.047);
+    num labY = _toLab(y, 100);
+    num labZ = _toLab(z, 108.883);
+
+    num labL = (116 * labY) - 16;
+    num labA = 500 * (labX - labY);
+    num labB = 200 * (labY - labZ);
+
+    return LabColor(labL, labA, labB);
+  }
+}
+
+String _x2(String value) {
+  final sb = StringBuffer();
+  for (var i = 0; i < value.length; i++) {
+    sb.write(value[i] * 2);
+  }
+  return sb.toString();
+}
+
+double? _parseColorPart(String value, double min, double max, RenderStyle? renderStyle) {
+  double? v;
+
+  if (value.startsWith('var') && renderStyle != null) {
+    final variable = CSSVariable.tryParse(renderStyle, value);
+    final computedValue = variable?.computedValue('');
+    if (computedValue == null) {
+      return null;
+    }
+    value = computedValue;
+  }
+
+  if (value.endsWith('%')) {
+    final p = double.tryParse(value.substring(0, value.length - 1));
+    if (p == null) return null;
+    v = p / 100.0 * max;
+  }
+
+  v ??= double.tryParse(value);
+
+  if (v == null) return null;
+
+  return v < min ? min : (v > max ? max : v);
+}
+
+double? _parseColorHue(String number, String? unit) {
+  final v = double.tryParse(number);
+  if (v == null) return null;
+
+  double deg;
+  switch (unit) {
+    case 'rad':
+      final rad = v;
+      deg = rad * (180 / pi);
+      break;
+    case 'grad':
+      final grad = v;
+      deg = grad * 0.9;
+      break;
+    case 'turn':
+      final turn = v;
+      deg = turn * 360;
+      break;
+    default:
+      deg = v;
+  }
+
+  while (deg < 0) {
+    deg += 360;
+  }
+
+  return deg % 360;
+}

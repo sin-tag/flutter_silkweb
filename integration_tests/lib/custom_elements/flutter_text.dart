@@ -1,0 +1,31 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:webf/dom.dart' as dom;
+import 'package:webf/bridge.dart';
+import 'package:webf/widget.dart';
+
+class TextWidgetElement extends WidgetElement {
+  TextWidgetElement(BindingContext? context) : super(context);
+
+  @override
+  Map<String, dynamic> get defaultStyle => {
+    'display': 'inline-block'
+  };
+
+  @override
+  WebFWidgetElementState createState() {
+    return TextWidgetState(this);
+  }
+}
+
+class TextWidgetState extends WebFWidgetElementState {
+  TextWidgetState(super.widgetElement);
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(widgetElement.getAttribute('value') ?? '',
+        textDirection: TextDirection.ltr,
+        style: TextStyle(color: Color.fromARGB(255, 100, 100, 100)));
+  }
+}

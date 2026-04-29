@@ -1,0 +1,98 @@
+/*
+ * Copyright (C) 2024-present The OpenWebF Company. All rights reserved.
+ * Licensed under GNU GPL with Enterprise exception.
+ */
+/*
+ * Copyright (C) 2022-2024 The WebF authors. All rights reserved.
+ */
+
+import 'dart:io';
+import 'package:logging/logging.dart';
+import 'package:flutter/foundation.dart';
+
+/// Global logger configuration for WebF
+class WebFLogger {
+  static bool _initialized = false;
+  // Monotonic stopwatch starting at application load to compute ms since start.
+  static final Stopwatch _appStopwatch = Stopwatch()..start();
+  static String _formatElapsed(Duration d) {
+    final totalMs = d.inMilliseconds;
+    if (totalMs < 1000) {
+      return '${totalMs}ms';
+    }
+    final minutes = totalMs ~/ 60000;
+    final seconds = (totalMs % 60000) ~/ 1000;
+    final millis = totalMs % 1000;
+    if (minutes > 0) {
+      return '${minutes}M${seconds}s${millis}ms';
+    }
+    return '${seconds}s${millis}ms';
+  }
+
+  /// Initialize the logger with default configuration
+  static void initialize() {
+    if (_initialized) return;
+
+    // Enable hierarchical logging to allow fine-grained control
+    hierarchicalLoggingEnabled = true;
+
+    // Set root logger level based on build mode
+    if (kReleaseMode) {
+      Logger.root.level = Level.WARNING;
+    } else if (kProfileMode) {
+      Logger.root.level = Level.INFO;
+    } else {
+      // Debug mode
+      Logger.root.level = Level.ALL;
+    }
+
+    // Configure the root logger to print messages
+    Logger.root.onRecord.listen((LogRecord record) {
+      // Time since application start in ms/s/M format
+      final time = _formatElapsed(_appStopwatch.elapsed);
+      final levelName = record.level.name;
+      final logger = record.loggerName.padRight(5);
+      final message = record.message;
+
+      // Format: [TIME] LEVEL LOGGER MESSAGE (omit LEVEL when FINE)
+      final logMessage = record.level == Level.FINE
+          ? '$time $logger $message'
+          : '$time $levelName $logger $message';
+
+      // In debug mode, use debugPrint for better Flutter integration
+      if (kDebugMode) {
+        print(logMessage);
+        if (record.error != null) print('Error: ${record.error}');
+        if (record.stackTrace != null) print('Stack trace:\n${record.stackTrace}');
+      } else {
+        // In release/profile mode, you might want to send logs to a service
+        // For now, write to stdout/stderr.
+        stdout.writeln(logMessage);
+        if (record.error != null) stderr.writeln('Error: ${record.error}');
+        if (record.stackTrace != null) stderr.writeln('Stack trace:\n${record.stackTrace}');
+      }
+    });
+
+    _initialized = true;
+  }
+
+  /// Get a logger instance for a specific component
+  static Logger getLogger(String name) {
+    if (!_initialized) {
+      initialize();
+    }
+    return Logger(name);
+  }
+}
+
+// Convenience loggers for different components
+final Logger bridgeLogger = WebFLogger.getLogger('WebF.Bridge');
+final Logger domLogger = WebFLogger.getLogger('WebF.DOM');
+final Logger cssLogger = WebFLogger.getLogger('WebF.CSS');
+final Logger renderingLogger = WebFLogger.getLogger('WebF.Rendering');
+final Logger canvasLogger = WebFLogger.getLogger('WebF.Canvas');
+final Logger httpCacheLogger = WebFLogger.getLogger('WebF.HttpCache');
+final Logger networkLogger = WebFLogger.getLogger('WebF.Network');
+final Logger widgetLogger = WebFLogger.getLogger('WebF.Widget');
+final Logger devToolsLogger = WebFLogger.getLogger('WebF.DevTools');
+final Logger devToolsProtocolLogger = WebFLogger.getLogger('WebF.DevTools.CDP');

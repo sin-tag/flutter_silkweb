@@ -1,0 +1,433 @@
+/*
+ * Copyright (C) 2024-present The OpenWebF Company. All rights reserved.
+ * Licensed under GNU GPL with Enterprise exception.
+ */
+/*
+ * Copyright (C) 2019-2022 The Kraken authors. All rights reserved.
+ * Copyright (C) 2022-2024 The WebF authors. All rights reserved.
+ */
+
+// ignore_for_file: constant_identifier_names
+
+// CSS Properties keywords
+const String DISPLAY = 'display';
+const String POSITION = 'position';
+const String OPACITY = 'opacity';
+const String Z_INDEX = 'zIndex';
+const String VISIBILITY = 'visibility';
+const String CONTENT_VISIBILITY = 'contentVisibility';
+const String BOX_SHADOW = 'boxShadow';
+const String COLOR = 'color';
+const String CARETCOLOR = 'caretColor';
+
+const String WIDTH = 'width';
+const String HEIGHT = 'height';
+const String MIN_HEIGHT = 'minHeight';
+const String MAX_HEIGHT = 'maxHeight';
+const String MIN_WIDTH = 'minWidth';
+const String MAX_WIDTH = 'maxWidth';
+
+// Sizing 4
+const String ASPECT_RATIO = 'aspectRatio';
+
+const String OVERFLOW = 'overflow';
+const String OVERFLOW_X = 'overflowX';
+const String OVERFLOW_Y = 'overflowY';
+
+const String PADDING = 'padding';
+const String PADDING_LEFT = 'paddingLeft';
+const String PADDING_TOP = 'paddingTop';
+const String PADDING_RIGHT = 'paddingRight';
+const String PADDING_BOTTOM = 'paddingBottom';
+
+const String MARGIN = 'margin';
+const String MARGIN_LEFT = 'marginLeft';
+const String MARGIN_TOP = 'marginTop';
+const String MARGIN_RIGHT = 'marginRight';
+const String MARGIN_BOTTOM = 'marginBottom';
+
+/// properties to writing directions
+const String MARGIN_INLINE_START = 'marginInlineStart';
+const String PADDING_INLINE_START = 'paddingInlineStart';
+const String BORDER_INLINE_START = 'borderInlineStart';
+const String BORDER_INLINE_START_WIDTH = 'borderInlineStartWidth';
+const String BORDER_INLINE_START_STYLE = 'borderInlineStartStyle';
+const String BORDER_INLINE_START_COLOR = 'borderInlineStartColor';
+const String INSET_INLINE_START = 'insetInlineStart';
+
+const String MARGIN_INLINE_END = 'marginInlineEnd';
+const String PADDING_INLINE_END = 'paddingInlineEnd';
+const String BORDER_INLINE_END = 'borderInlineEnd';
+const String BORDER_INLINE_END_WIDTH = 'borderInlineEndWidth';
+const String BORDER_INLINE_END_STYLE = 'borderInlineEndStyle';
+const String BORDER_INLINE_END_COLOR = 'borderInlineEndColor';
+const String INSET_INLINE_END = 'insetInlineEnd';
+
+const String MARGIN_BLOCK_START = 'marginBlockStart';
+const String PADDING_BLOCK_START = 'paddingBlockStart';
+const String BORDER_BLOCK_START = 'borderBlockStart';
+const String BORDER_BLOCK_START_WIDTH = 'borderBlockStartWidth';
+const String BORDER_BLOCK_START_STYLE = 'borderBlockStartStyle';
+const String BORDER_BLOCK_START_COLOR = 'borderBlockStartColor';
+const String INSET_BLOCK_START = 'insetBlockStart';
+
+const String MARGIN_BLOCK_END = 'marginBlockEnd';
+const String PADDING_BLOCK_END = 'paddingBlockEnd';
+const String BORDER_BLOCK_END = 'borderBlockEnd';
+const String BORDER_BLOCK_END_WIDTH = 'borderBlockEndWidth';
+const String BORDER_BLOCK_END_STYLE = 'borderBlockEndStyle';
+const String BORDER_BLOCK_END_COLOR = 'borderBlockEndColor';
+const String INSET_BLOCK_END = 'insetBlockEnd';
+
+const String BACKGROUND = 'background';
+const String BACKGROUND_ATTACHMENT = 'backgroundAttachment';
+const String BACKGROUND_REPEAT = 'backgroundRepeat';
+const String BACKGROUND_POSITION = 'backgroundPosition';
+const String BACKGROUND_POSITION_X = 'backgroundPositionX';
+const String BACKGROUND_POSITION_Y = 'backgroundPositionY';
+const String BACKGROUND_IMAGE = 'backgroundImage';
+const String BACKGROUND_SIZE = 'backgroundSize';
+const String BACKGROUND_COLOR = 'backgroundColor';
+const String BACKGROUND_ORIGIN = 'backgroundOrigin';
+const String BACKGROUND_CLIP = 'backgroundClip';
+
+const String BORDER = 'border';
+const String BORDER_TOP = 'borderTop';
+const String BORDER_RIGHT = 'borderRight';
+const String BORDER_BOTTOM = 'borderBottom';
+const String BORDER_LEFT = 'borderLeft';
+const String BORDER_WIDTH = 'borderWidth';
+const String BORDER_TOP_WIDTH = 'borderTopWidth';
+const String BORDER_RIGHT_WIDTH = 'borderRightWidth';
+const String BORDER_BOTTOM_WIDTH = 'borderBottomWidth';
+const String BORDER_LEFT_WIDTH = 'borderLeftWidth';
+const String BORDER_STYLE = 'borderStyle';
+const String BORDER_TOP_STYLE = 'borderTopStyle';
+const String BORDER_RIGHT_STYLE = 'borderRightStyle';
+const String BORDER_BOTTOM_STYLE = 'borderBottomStyle';
+const String BORDER_LEFT_STYLE = 'borderLeftStyle';
+const String BORDER_COLOR = 'borderColor';
+const String BORDER_TOP_COLOR = 'borderTopColor';
+const String BORDER_RIGHT_COLOR = 'borderRightColor';
+const String BORDER_BOTTOM_COLOR = 'borderBottomColor';
+const String BORDER_LEFT_COLOR = 'borderLeftColor';
+
+const String BORDER_RADIUS = 'borderRadius';
+const String BORDER_TOP_LEFT_RADIUS = 'borderTopLeftRadius';
+const String BORDER_TOP_RIGHT_RADIUS = 'borderTopRightRadius';
+const String BORDER_BOTTOM_RIGHT_RADIUS = 'borderBottomRightRadius';
+const String BORDER_BOTTOM_LEFT_RADIUS = 'borderBottomLeftRadius';
+// Logical border radius (CSS Logical Properties)
+const String BORDER_START_START_RADIUS = 'borderStartStartRadius';
+const String BORDER_START_END_RADIUS = 'borderStartEndRadius';
+const String BORDER_END_START_RADIUS = 'borderEndStartRadius';
+const String BORDER_END_END_RADIUS = 'borderEndEndRadius';
+
+const String FONT = 'font';
+const String FONT_STYLE = 'fontStyle';
+const String FONT_VARIANT = 'fontVariant';
+const String FONT_WEIGHT = 'fontWeight';
+const String FONT_SIZE = 'fontSize';
+const String LINE_HEIGHT = 'lineHeight';
+const String FONT_FAMILY = 'fontFamily';
+const String VERTICAL_ALIGN = 'verticalAlign';
+const String TEXT_OVERFLOW = 'textOverflow';
+const String TEXT_TRANSFORM = 'textTransform';
+const String TEXT_DECORATION = 'textDecoration';
+const String TEXT_DECORATION_LINE = 'textDecorationLine';
+const String TEXT_DECORATION_COLOR = 'textDecorationColor';
+const String TEXT_DECORATION_STYLE = 'textDecorationStyle';
+const String TEXT_SHADOW = 'textShadow';
+const String LETTER_SPACING = 'letterSpacing';
+const String WORD_SPACING = 'wordSpacing';
+// CSS word-break property (camelCase form used internally)
+const String WORD_BREAK = 'wordBreak';
+const String WHITE_SPACE = 'whiteSpace';
+const String LINE_CLAMP = 'lineClamp';
+const String TAB_SIZE = 'tabSize';
+const String TEXT_INDENT = 'textIndent';
+
+const String FLEX = 'flex';
+const String FLEX_GROW = 'flexGrow';
+const String FLEX_SHRINK = 'flexShrink';
+const String FLEX_BASIS = 'flexBasis';
+const String FLEX_FLOW = 'flexFlow';
+const String FLEX_DIRECTION = 'flexDirection';
+const String FLEX_WRAP = 'flexWrap';
+const String ORDER = 'order';
+
+const String GAP = 'gap';
+const String ROW_GAP = 'rowGap';
+const String COLUMN_GAP = 'columnGap';
+
+const String JUSTIFY_CONTENT = 'justifyContent';
+const String JUSTIFY_ITEMS = 'justifyItems';
+const String JUSTIFY_SELF = 'justifySelf';
+const String TEXT_ALIGN = 'textAlign';
+const String ALIGN_ITEMS = 'alignItems';
+const String ALIGN_SELF = 'alignSelf';
+const String ALIGN_CONTENT = 'alignContent';
+// Shorthands for CSS Box Alignment.
+const String PLACE_CONTENT = 'placeContent';
+const String PLACE_ITEMS = 'placeItems';
+const String PLACE_SELF = 'placeSelf';
+
+// CSS Grid shorthands
+const String GRID_TEMPLATE = 'gridTemplate';
+
+const String GRID_AUTO_FLOW = 'gridAutoFlow';
+const String GRID_AUTO_ROWS = 'gridAutoRows';
+const String GRID_AUTO_COLUMNS = 'gridAutoColumns';
+const String GRID_TEMPLATE_ROWS = 'gridTemplateRows';
+const String GRID_TEMPLATE_COLUMNS = 'gridTemplateColumns';
+const String GRID_TEMPLATE_AREAS = 'gridTemplateAreas';
+const String GRID_ROW_START = 'gridRowStart';
+const String GRID_ROW_END = 'gridRowEnd';
+const String GRID_COLUMN_START = 'gridColumnStart';
+const String GRID_COLUMN_END = 'gridColumnEnd';
+const String GRID_ROW = 'gridRow';
+const String GRID_COLUMN = 'gridColumn';
+const String GRID_AREA_INTERNAL = '__gridAreaName';
+const String GRID_AREA = 'gridArea';
+
+const String DIRECTION = 'direction';
+const String UNICODE_BIDI = 'unicodeBidi';
+
+const String SLIVER_DIRECTION = 'sliverDirection';
+
+const String TRANSFORM = 'transform';
+const String TRANSFORM_ORIGIN = 'transformOrigin';
+const String WRITING_MODE = 'writingMode';
+
+const String TRANSITION = 'transition';
+const String TRANSITION_PROPERTY = 'transitionProperty';
+const String TRANSITION_DURATION = 'transitionDuration';
+const String TRANSITION_TIMING_FUNCTION = 'transitionTimingFunction';
+const String TRANSITION_DELAY = 'transitionDelay';
+
+const String OBJECT_FIT = 'objectFit';
+const String OBJECT_POSITION = 'objectPosition';
+
+const String FILTER = 'filter';
+const String BACKDROP_FILTER = 'backdropFilter';
+
+const String MATRIX = 'matrix';
+const String MATRIX_3D = 'matrix3d';
+
+const String TRANSLATE = 'translate';
+const String TRANSLATE_3D = 'translate3d';
+const String TRANSLATE_X = 'translatex';
+const String TRANSLATE_Y = 'translatey';
+const String TRANSLATE_Z = 'translatez';
+
+const String ROTATE = 'rotate';
+const String ROTATE_3D = 'rotate3d';
+const String ROTATE_X = 'rotatex';
+const String ROTATE_Y = 'rotatey';
+const String ROTATE_Z = 'rotatez';
+const String SCALE_3D = 'scale3d';
+
+const String SCALE = 'scale';
+const String SCALE_X = 'scalex';
+const String SCALE_Y = 'scaley';
+const String SCALE_Z = 'scalez';
+const String SKEW = 'skew';
+const String SKEW_X = 'skewx';
+const String SKEW_Y = 'skewy';
+
+const String PERSPECTIVE = 'perspective';
+
+const String SAFE_AREA_INSET = 'safe-area-inset';
+const String SAFE_AREA_INSET_TOP = '$SAFE_AREA_INSET-top';
+const String SAFE_AREA_INSET_LEFT = '$SAFE_AREA_INSET-left';
+const String SAFE_AREA_INSET_RIGHT = '$SAFE_AREA_INSET-right';
+const String SAFE_AREA_INSET_BOTTOM = '$SAFE_AREA_INSET-bottom';
+
+// CSS Values keywords
+const String INITIAL = 'initial';
+const String NORMAL = 'normal';
+const String NONE = 'none';
+const String AUTO = 'auto';
+const String INHERIT = 'inherit';
+
+// CSS Content Visibility: https://www.w3.org/TR/css-contain-2/#content-visibility
+const String VISIBLE = 'visible';
+const String HIDDEN = 'hidden';
+
+// CSS Overflow: https://drafts.csswg.org/css-overflow/#overflow-properties
+const String CLIP = 'clip';
+
+// Border
+const String SOLID = 'solid';
+const String DASHED = 'dashed';
+const String THIN = 'thin'; // A thin border.
+const String MEDIUM = 'medium'; // A medium border.
+const String THICK = 'thick'; // A thick border.
+
+// Font absolute size keyword: [ xx-small | x-small | small | medium | large | x-large | xx-large ]
+const String XX_SMALL = 'xx-small';
+const String X_SMALL = 'x-small';
+const String SMALL = 'small';
+const String LARGE = 'large';
+const String X_LARGE = 'x-large';
+const String XX_LARGE = 'xx-large';
+// Font relative size keyword
+const String SMALLER = 'smaller';
+const String LARGER = 'larger';
+// Font style
+const String ITALIC = 'italic';
+// Text decoration
+const String LINE_THROUGH = 'line-through';
+const String UNDERLINE = 'underline';
+const String DOTTED = 'dotted';
+const String DOUBLE = 'double';
+// Additional border-style keywords
+const String GROOVE = 'groove';
+const String RIDGE = 'ridge';
+const String OUTSET = 'outset';
+
+// Display
+const String INLINE = 'inline';
+const String BLOCK = 'block';
+const String INLINE_BLOCK = 'inline-block';
+const String INLINE_FLEX = 'inline-flex';
+const String GRID = 'grid';
+const String INLINE_GRID = 'inline-grid';
+
+// Position
+const String RELATIVE = 'relative';
+const String ABSOLUTE = 'absolute';
+const String FIXED = 'fixed';
+const String STICKY = 'sticky';
+const String STATIC = 'static';
+
+const String LEFT = 'left';
+const String RIGHT = 'right';
+const String TOP = 'top';
+const String BOTTOM = 'bottom';
+const String TEXT_BOTTOM = 'text-bottom';
+const String TEXT_TOP = 'text-top';
+const String MIDDLE = 'middle';
+const String SUPER = 'super';
+const String SUB = 'sub';
+
+const String CENTER = 'center';
+
+// Flex
+const String ROW = 'row';
+const String ROW_REVERSE = 'row-reverse';
+const String COLUMN = 'column';
+const String COLUMN_REVERSE = 'column-reverse';
+const String STRETCH = 'stretch';
+const String NO_WRAP = 'nowrap';
+const String WRAP = 'wrap';
+const String WRAP_REVERSE = 'wrap-reverse';
+
+const String PRE = 'pre';
+
+const String LIGHTER = 'lighter';
+const String BOLD = 'bold';
+const String BOLDER = 'bolder';
+
+// Transition
+const String ALL = 'all';
+const String LINEAR = 'linear';
+const String EASE = 'ease';
+const String EASE_IN = 'ease-in';
+const String EASE_OUT = 'ease-out';
+const String EASE_IN_OUT = 'ease-in-out';
+const String STEP_START = 'step-start';
+const String STEP_END = 'step-end';
+
+// Shadow
+const String INSET = 'inset';
+
+// Background
+const String REPEAT_X = 'repeat-x';
+const String REPEAT_Y = 'repeat-y';
+const String REPEAT = 'repeat';
+const String NO_REPEAT = 'no-repeat';
+
+const String CONTAIN = 'contain';
+const String COVER = 'cover';
+const String FIT_WIDTH = 'fit-width';
+const String FIT_HEIGTH = 'fit-height';
+const String SCALE_DOWN = 'scale-down';
+const String FILL = 'fill';
+
+const String SCROLL = 'scroll';
+const String LOCAL = 'local';
+
+const String TRANSPARENT = 'transparent';
+const String CURRENT_COLOR = 'currentcolor';
+
+// Length unit
+const String PX = 'px';
+const String MM = 'mm';
+const String CM = 'cm';
+const String IN = 'in';
+const String PC = 'pc';
+const String PT = 'pt';
+const String Q = 'q';
+const String RPX = 'rpx';
+const String VW = 'vw';
+const String VH = 'vh';
+const String VMIN = 'vmin';
+const String VMAX = 'vmax';
+const String EM = 'em';
+const String REM = 'rem';
+const String CH = 'ch';
+const String EX = 'ex';
+
+// Functions
+const String ENV = 'env';
+const String VAR = 'var';
+const String CALC = 'calc';
+
+const String PERCENTAGE = '%';
+const String ZERO = '0';
+const String EMPTY_STRING = '';
+
+// Animation
+const String FORWARDS = 'forwards';
+const String BACKWARDS = 'backwards';
+const String BOTH = 'both';
+const String RUNNING = 'running';
+const String PAUSED = 'paused';
+const String REVERSE = 'reverse';
+const String ALTERNATE = 'alternate';
+const String ALTERNATE_REVERSE = 'alternate-reverse';
+
+const String ANIMATION = 'animation';
+const String ANIMATION_NAME = 'animationName';
+const String ANIMATION_DURATION = 'animationDuration';
+const String ANIMATION_TIMING_FUNCTION = 'animationTimingFunction';
+const String ANIMATION_DELAY = 'animationDelay';
+const String ANIMATION_ITERATION_COUNT = 'animationIterationCount';
+const String ANIMATION_DIRECTION = 'animationDirection';
+const String ANIMATION_FILL_MODE = 'animationFillMode';
+const String ANIMATION_PLAY_STATE = 'animationPlayState';
+
+// SVG
+const String X = 'x';
+const String Y = 'y';
+const String RX = 'rx';
+const String RY = 'ry';
+const String CX = 'cx';
+const String CY = 'cy';
+const String R = 'r';
+const String CONTEXT_FILL = 'context-fill';
+const String CONTEXT_STROKE = 'context-stroke';
+const String STROKE = 'stroke';
+const String STROKE_WIDTH = 'strokeWidth';
+const String D = 'd';
+const String FILL_RULE = 'fillRule';
+const String STROKE_LINECAP = 'strokeLinecap';
+const String STROKE_LINEJOIN = 'strokeLinejoin';
+const String X1 = 'x1';
+const String Y1 = 'y1';
+const String X2 = 'x2';
+const String Y2 = 'y2';
+
+// Pseudo
+const String CONTENT = 'content';

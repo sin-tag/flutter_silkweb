@@ -1,0 +1,992 @@
+/*
+ * Copyright (C) 2022-present The WebF authors. All rights reserved.
+ */
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_silkweb/webf.dart';
+import 'package:flutter_silkweb/css.dart';
+import 'package:flutter_silkweb/dom.dart' as dom;
+import '../../setup.dart';
+import '../widget/test_utils.dart';
+
+// Helper to check if colors are different
+bool areColorsDifferent(CSSColor? color1, CSSColor? color2) {
+  if (color1 == null && color2 == null) return false;
+  if (color1 == null || color2 == null) return true;
+  return color1.value != color2.value;
+}
+
+void main() {
+  setUpAll(() {
+    setupTest();
+  });
+
+  setUp(() {
+    WebFControllerManager.instance.initialize(
+      WebFControllerManagerConfig(
+        maxAliveInstances: 5,
+        maxAttachedInstances: 5,
+        enableDevTools: false,
+      ),
+    );
+  });
+
+  tearDown(() async {
+    // Clean up any controllers from previous tests
+    WebFControllerManager.instance.disposeAll();
+    // Add a small delay to ensure file locks are released
+    await Future.delayed(Duration(milliseconds: 100));
+  });
+
+  group('ID Selectors', () {
+    testWidgets('basic id selector', (WidgetTester tester) async {
+      final prepared = await WebFWidgetTestUtils.prepareWidgetTest(
+        tester: tester,
+        controllerName:
+            'id-selector-basic-test-${DateTime.now().millisecondsSinceEpoch}',
+        html: '''
+          <html>
+            <head>
+              <style>
+                #div1 { color: green; }
+              </style>
+            </head>
+            <body style="margin: 0; padding: 0;">
+              <div id="div1">Green text</div>
+            </body>
+          </html>
+        ''',
+      );
+
+      final div = prepared.getElementById('div1');
+      // Check that a color is applied (not default black)
+      expect(div.renderStyle.color, isNotNull);
+      expect(div.renderStyle.color.value.toARGB32(),
+          isNot(equals(0xFF000000))); // not black
+    });
+
+    testWidgets('id selector with hyphen', (WidgetTester tester) async {
+      final prepared = await WebFWidgetTestUtils.prepareWidgetTest(
+        tester: tester,
+        controllerName:
+            'id-selector-hyphen-test-${DateTime.now().millisecondsSinceEpoch}',
+        html: '''
+          <html>
+            <head>
+              <style>
+                div { color: red; }
+                #-div1 { color: green; }
+              </style>
+            </head>
+            <body style="margin: 0; padding: 0;">
+              <div id="-div1">Green text</div>
+            </body>
+          </html>
+        ''',
+      );
+
+      final div = prepared.getElementById('-div1');
+      // Check that a color is applied (not default black or red)
+      expect(div.renderStyle.color, isNotNull);
+      expect(div.renderStyle.color.value.toARGB32(),
+          isNot(equals(0xFF000000))); // not black
+      expect(div.renderStyle.color.value.toARGB32(),
+          isNot(equals(0xFFFF0000))); // not red
+    });
+
+    testWidgets('id selector specificity', (WidgetTester tester) async {
+      final prepared = await WebFWidgetTestUtils.prepareWidgetTest(
+        tester: tester,
+        controllerName:
+            'id-selector-specificity-test-${DateTime.now().millisecondsSinceEpoch}',
+        html: '''
+          <html>
+            <head>
+              <style>
+                div[id=div1] { color: red; }
+                div#div1 { color: green; }
+              </style>
+            </head>
+            <body style="margin: 0; padding: 0;">
+              <div id="div1">Green text (ID selector wins)</div>
+            </body>
+          </html>
+        ''',
+      );
+
+      final div = prepared.getElementById('div1');
+      // ID selector should win, applying green color
+      expect(div.renderStyle.color, isNotNull);
+      expect(div.renderStyle.color.value.toARGB32(),
+          isNot(equals(0xFF000000))); // not black
+      expect(div.renderStyle.color.value.toARGB32(),
+          isNot(equals(0xFFFF0000))); // not red
+    });
+  });
+
+  group('Class Selectors', () {
+    testWidgets('basic class selector', (WidgetTester tester) async {
+      final prepared = await WebFWidgetTestUtils.prepareWidgetTest(
+        tester: tester,
+        controllerName:
+            'class-selector-basic-test-${DateTime.now().millisecondsSinceEpoch}',
+        html: '''
+          <html>
+            <head>
+              <style>
+                .red { color: red; }
+              </style>
+            </head>
+            <body style="margin: 0; padding: 0;">
+              <div id="red-div" class="red">Red text</div>
+            </body>
+          </html>
+        ''',
+      );
+
+      final element = prepared.getElementById('red-div');
+      expect(element.className, equals('red'));
+      expect(element.renderStyle.color, isNotNull); // color is applied
+    });
+
+    testWidgets('element with class selector', (WidgetTester tester) async {
+      final prepared = await WebFWidgetTestUtils.prepareWidgetTest(
+        tester: tester,
+        controllerName:
+            'element-class-selector-test-${DateTime.now().millisecondsSinceEpoch}',
+        html: '''
+          <html>
+            <head>
+              <style>
+                div.div1 { color: red; }
+              </style>
+            </head>
+            <body style="margin: 0; padding: 0;">
+              <div id="div1" class="div1">Red text</div>
+              <span id="span1" class="div1">Black text (not a div)</span>
+            </body>
+          </html>
+        ''',
+      );
+
+      final div = prepared.getElementById('div1');
+      final span = prepared.getElementById('span1');
+
+      expect(div.renderStyle.color, isNotNull); // div has color
+      // Span should not have the color since selector is div.div1
+      final spanColor = span.renderStyle.color;
+      expect(spanColor.value.toARGB32(), equals(0xFF000000)); // default black
+    });
+
+    testWidgets('multiple class selector', (WidgetTester tester) async {
+      final prepared = await WebFWidgetTestUtils.prepareWidgetTest(
+        tester: tester,
+        controllerName:
+            'multiple-class-selector-test-${DateTime.now().millisecondsSinceEpoch}',
+        html: '''
+          <html>
+            <head>
+              <style>
+                div.bar.foo.bat { color: red; }
+              </style>
+            </head>
+            <body style="margin: 0; padding: 0;">
+              <div id="all-classes" class="foo bar bat">Red text</div>
+              <div id="missing-class" class="foo bar">Black text (missing bat)</div>
+            </body>
+          </html>
+        ''',
+      );
+
+      final divWithAll = prepared.getElementById('all-classes');
+      final divMissing = prepared.getElementById('missing-class');
+
+      expect(divWithAll.renderStyle.color, isNotNull); // has color
+      // Missing class should have default color
+      final missingColor = divMissing.renderStyle.color;
+      expect(
+          missingColor.value.toARGB32(), equals(0xFF000000)); // default black
+    });
+
+    testWidgets('class selector specificity order',
+        (WidgetTester tester) async {
+      final prepared = await WebFWidgetTestUtils.prepareWidgetTest(
+        tester: tester,
+        controllerName:
+            'class-specificity-test-${DateTime.now().millisecondsSinceEpoch}',
+        html: '''
+          <html>
+            <head>
+              <style>
+                .rule1 { background: red; color: yellow; }
+                .rule2 { background: green; color: white; }
+              </style>
+            </head>
+            <body style="margin: 0; padding: 0;">
+              <p id="test" class="rule2 rule1">Green background</p>
+            </body>
+          </html>
+        ''',
+      );
+
+      final p = prepared.getElementById('test');
+      // Last rule wins when specificity is equal
+      expect(p.renderStyle.backgroundColor, isNotNull);
+      expect(p.renderStyle.color, isNotNull);
+      // Both styles should be applied from rule2
+      expect(p.renderStyle.backgroundColor!.value,
+          isNot(equals(p.renderStyle.color.value)));
+    });
+
+    testWidgets('dynamic class addition', (WidgetTester tester) async {
+      final prepared = await WebFWidgetTestUtils.prepareWidgetTest(
+        tester: tester,
+        controllerName:
+            'dynamic-class-test-${DateTime.now().millisecondsSinceEpoch}',
+        html: '''
+          <html>
+            <head>
+              <style>
+                .red { color: red; }
+                .blue { color: blue; }
+              </style>
+            </head>
+            <body style="margin: 0; padding: 0;">
+              <div id="test">Default color</div>
+            </body>
+          </html>
+        ''',
+      );
+
+      final div = prepared.getElementById('test');
+
+      // Initially default color (WebF sets black as default)
+      expect(
+          div.renderStyle.color.value.toARGB32(), equals(0xFF000000)); // black
+
+      // Add red class
+      div.className = 'red';
+      div.ownerDocument.updateStyleIfNeeded();
+      await tester.pump(const Duration(milliseconds: 50));
+      final redColor = div.renderStyle.color;
+      expect(redColor, isNotNull);
+      expect(redColor.value.toARGB32(), isNot(equals(0xFF000000))); // not black
+
+      // Change to blue class
+      div.className = 'blue';
+      div.ownerDocument.updateStyleIfNeeded();
+      await tester.pump(const Duration(milliseconds: 50));
+      final blueColor = div.renderStyle.color;
+      expect(blueColor, isNotNull);
+      expect(
+          blueColor.value.toARGB32(), isNot(equals(0xFF000000))); // not black
+      expect(blueColor.value.toARGB32(),
+          isNot(equals(redColor.value.toARGB32()))); // different from red
+    });
+  });
+
+  group('Tag Selectors', () {
+    testWidgets('basic tag selector', (WidgetTester tester) async {
+      final prepared = await WebFWidgetTestUtils.prepareWidgetTest(
+        tester: tester,
+        controllerName:
+            'tag-selector-basic-test-${DateTime.now().millisecondsSinceEpoch}',
+        html: '''
+          <html>
+            <head>
+              <style>
+                div { color: red; }
+                span { color: blue; }
+              </style>
+            </head>
+            <body style="margin: 0; padding: 0;">
+              <div id="div1">Red text</div>
+              <span id="span1">Blue text</span>
+            </body>
+          </html>
+        ''',
+      );
+
+      final div = prepared.getElementById('div1');
+      final span = prepared.getElementById('span1');
+
+      expect(div.renderStyle.color, isNotNull); // red applied
+      expect(span.renderStyle.color, isNotNull); // blue applied
+      expect(areColorsDifferent(div.renderStyle.color, span.renderStyle.color),
+          isTrue);
+    });
+
+    testWidgets('universal selector', (WidgetTester tester) async {
+      final prepared = await WebFWidgetTestUtils.prepareWidgetTest(
+        tester: tester,
+        controllerName:
+            'universal-selector-test-${DateTime.now().millisecondsSinceEpoch}',
+        html: '''
+          <html>
+            <head>
+              <style>
+                * { margin: 10px; }
+                div { color: red; }
+              </style>
+            </head>
+            <body style="margin: 0; padding: 0;">
+              <div id="div1">Red text with margin</div>
+              <span id="span1">Default color with margin</span>
+            </body>
+          </html>
+        ''',
+      );
+
+      final div = prepared.getElementById('div1');
+      final span = prepared.getElementById('span1');
+
+      // Both should have margin from universal selector
+      expect(div.renderStyle.marginTop.computedValue, equals(10.0));
+      expect(span.renderStyle.marginTop.computedValue, equals(10.0));
+
+      // Only div has red color
+      expect(div.renderStyle.color, isNotNull);
+      expect(div.renderStyle.color.value.toARGB32(),
+          isNot(equals(0xFF000000))); // not default
+      // Span should have default color
+      final spanColor = span.renderStyle.color;
+      expect(spanColor.value.toARGB32(), equals(0xFF000000)); // default black
+    });
+  });
+
+  group('Pseudo Selectors', () {
+    testWidgets('::before pseudo element content', (WidgetTester tester) async {
+      final prepared = await WebFWidgetTestUtils.prepareWidgetTest(
+        tester: tester,
+        controllerName:
+            'before-pseudo-test-${DateTime.now().millisecondsSinceEpoch}',
+        html: '''
+          <html>
+            <head>
+              <style>
+                .div1::before {
+                  content: 'Before: ';
+                  color: red;
+                }
+              </style>
+            </head>
+            <body style="margin: 0; padding: 0;">
+              <div id="test" class="div1">Main content</div>
+            </body>
+          </html>
+        ''',
+      );
+
+      final div = prepared.getElementById('test');
+
+      // Check that element has the class that triggers pseudo element
+      expect(div.className, equals('div1'));
+
+      // WebF should apply pseudo element styles
+      // Note: Direct access to pseudo elements may not be available
+      // We can check that the main element is styled correctly
+      expect(div.renderStyle, isNotNull);
+    });
+
+    testWidgets('::after pseudo element content', (WidgetTester tester) async {
+      final prepared = await WebFWidgetTestUtils.prepareWidgetTest(
+        tester: tester,
+        controllerName:
+            'after-pseudo-test-${DateTime.now().millisecondsSinceEpoch}',
+        html: '''
+          <html>
+            <head>
+              <style>
+                .div1::after {
+                  content: ' :After';
+                  color: blue;
+                }
+              </style>
+            </head>
+            <body style="margin: 0; padding: 0;">
+              <div id="test" class="div1">Main content</div>
+            </body>
+          </html>
+        ''',
+      );
+
+      final div = prepared.getElementById('test');
+
+      // Check that element has the class that triggers pseudo element
+      expect(div.className, equals('div1'));
+      expect(div.renderStyle, isNotNull);
+    });
+
+    testWidgets('pseudo element with display none',
+        (WidgetTester tester) async {
+      final prepared = await WebFWidgetTestUtils.prepareWidgetTest(
+        tester: tester,
+        controllerName:
+            'pseudo-display-none-test-${DateTime.now().millisecondsSinceEpoch}',
+        html: '''
+          <html>
+            <head>
+              <style>
+                .div1::before {
+                  content: 'Hidden';
+                  display: none;
+                }
+              </style>
+            </head>
+            <body style="margin: 0; padding: 0;">
+              <div id="test" class="div1">Visible content</div>
+            </body>
+          </html>
+        ''',
+      );
+
+      final div = prepared.getElementById('test');
+
+      // The main element should still be visible
+      expect(div.renderStyle.display, isNot(equals(CSSDisplay.none)));
+    });
+
+    testWidgets(':root of-type pseudos on descendants',
+        (WidgetTester tester) async {
+      final prepared = await WebFWidgetTestUtils.prepareWidgetTest(
+        tester: tester,
+        controllerName:
+            'root-of-type-descendant-${DateTime.now().millisecondsSinceEpoch}',
+        html: '''
+          <html>
+            <head>
+              <style>
+                :root:first-child #a { color: green; }
+                :root:nth-child(n) #b { color: green; }
+                :root:first-of-type #c { color: green; }
+                :root:nth-of-type(1) #d { color: green; }
+                :root:last-of-type #e { color: green; }
+                :root:last-child #f { color: green; }
+                :root:nth-last-child(1) #g { color: green; }
+                :root:nth-last-of-type(n) #h { color: green; }
+                #i { color: green; }
+                :root:nth-last-child(2) #i { color: red; }
+              </style>
+            </head>
+            <body style="margin: 0; padding: 0;">
+              <p id="a">a</p>
+              <p id="b">b</p>
+              <p id="c">c</p>
+              <p id="d">d</p>
+              <p id="e">e</p>
+              <p id="f">f</p>
+              <p id="g">g</p>
+              <p id="h">h</p>
+              <p id="i">i</p>
+            </body>
+          </html>
+        ''',
+      );
+
+      final c = prepared.getElementById('c');
+      // Ensure :root:first-of-type descendant matched
+      expect(c.renderStyle.color, isNotNull);
+    });
+
+    testWidgets(':is() empty matches nothing', (WidgetTester tester) async {
+      final prepared = await WebFWidgetTestUtils.prepareWidgetTest(
+        tester: tester,
+        controllerName:
+            'is-empty-test-${DateTime.now().millisecondsSinceEpoch}',
+        html: '''
+          <html>
+            <head>
+              <style>
+                main div { color: rgb(255, 0, 0); }
+                :is() { color: rgb(0, 128, 0); }
+              </style>
+            </head>
+            <body style="margin: 0; padding: 0;">
+              <main id="main">
+                <div id="a"><div id="d"></div></div>
+                <div id="b"><div id="e"></div></div>
+                <div id="c"><div id="f"></div></div>
+              </main>
+            </body>
+          </html>
+        ''',
+      );
+
+      // Should not throw; should match nothing.
+      final List<dynamic> results =
+          prepared.document.querySelectorAll([':is()']) as List<dynamic>;
+      expect(results, isEmpty);
+
+      // The invalid :is() rule should be ignored; red rule should apply.
+      final a = prepared.getElementById('a');
+      expect(a.renderStyle.color.value.toARGB32(), equals(0xFFFF0000));
+    });
+
+    testWidgets(':is() selector list matches and has id specificity',
+        (WidgetTester tester) async {
+      final prepared = await WebFWidgetTestUtils.prepareWidgetTest(
+        tester: tester,
+        controllerName:
+            'is-basic-specificity-test-${DateTime.now().millisecondsSinceEpoch}',
+        html: '''
+          <html>
+            <head>
+              <style>
+                :is(#a, #b) { color: rgb(0, 128, 0); }
+                .c { color: rgb(255, 0, 0); }
+              </style>
+            </head>
+            <body style="margin: 0; padding: 0;">
+              <div id="a" class="c">A</div>
+              <div id="b">B</div>
+              <div id="c" class="c">C</div>
+            </body>
+          </html>
+        ''',
+      );
+
+      final List<dynamic> results =
+          prepared.document.querySelectorAll([':is(#a, #b)']) as List<dynamic>;
+      final ids = results.map((e) => (e as dom.Element).id).toList()..sort();
+      expect(ids, equals(<String>['a', 'b']));
+
+      final a = prepared.getElementById('a');
+      final b = prepared.getElementById('b');
+      final c = prepared.getElementById('c');
+
+      // :is(#id) should have ID specificity and beat `.c` even if `.c` appears later.
+      expect(a.renderStyle.color.value.toARGB32(), equals(0xFF008000));
+      expect(b.renderStyle.color.value.toARGB32(), equals(0xFF008000));
+      // Element #c is not in the :is list, so `.c` applies.
+      expect(c.renderStyle.color.value.toARGB32(), equals(0xFFFF0000));
+    });
+  });
+
+  group('Descendant Selectors', () {
+    testWidgets('basic descendant selector', (WidgetTester tester) async {
+      final prepared = await WebFWidgetTestUtils.prepareWidgetTest(
+        tester: tester,
+        controllerName:
+            'descendant-selector-test-${DateTime.now().millisecondsSinceEpoch}',
+        html: '''
+          <html>
+            <head>
+              <style>
+                div span { color: red; }
+              </style>
+            </head>
+            <body style="margin: 0; padding: 0;">
+              <div id="parent">
+                <span id="nested-span">Red text</span>
+              </div>
+              <span id="top-span">Default color</span>
+            </body>
+          </html>
+        ''',
+      );
+
+      final nestedSpan = prepared.getElementById('nested-span');
+      final topSpan = prepared.getElementById('top-span');
+
+      expect(nestedSpan.renderStyle.color, isNotNull); // color applied
+      // Top span should have default color
+      final topColor = topSpan.renderStyle.color;
+      expect(topColor.value.toARGB32(), equals(0xFF000000)); // default black
+    });
+
+    testWidgets('multiple level descendant', (WidgetTester tester) async {
+      final prepared = await WebFWidgetTestUtils.prepareWidgetTest(
+        tester: tester,
+        controllerName:
+            'multi-descendant-test-${DateTime.now().millisecondsSinceEpoch}',
+        html: '''
+          <html>
+            <head>
+              <style>
+                .container .inner span { color: blue; }
+              </style>
+            </head>
+            <body style="margin: 0; padding: 0;">
+              <div class="container">
+                <div class="inner">
+                  <span id="deep-span">Blue text</span>
+                </div>
+                <span id="shallow-span">Default color</span>
+              </div>
+            </body>
+          </html>
+        ''',
+      );
+
+      final deepSpan = prepared.getElementById('deep-span');
+      final shallowSpan = prepared.getElementById('shallow-span');
+
+      expect(deepSpan.renderStyle.color, isNotNull); // color applied
+      // Shallow span should have default color
+      final shallowColor = shallowSpan.renderStyle.color;
+      expect(
+          shallowColor.value.toARGB32(), equals(0xFF000000)); // default black
+    });
+
+    testWidgets('selector list descendant fast path matches any branch',
+        (WidgetTester tester) async {
+      final prepared = await WebFWidgetTestUtils.prepareWidgetTest(
+        tester: tester,
+        controllerName:
+            'selector-list-descendant-fast-path-${DateTime.now().millisecondsSinceEpoch}',
+        html: '''
+          <html>
+            <head>
+              <style>
+                .foo .target, .bar .target { color: red; }
+              </style>
+            </head>
+            <body style="margin: 0; padding: 0;">
+              <div class="foo">
+                <span id="target" class="target">Matched by .foo branch</span>
+              </div>
+            </body>
+          </html>
+        ''',
+      );
+
+      final target = prepared.getElementById('target');
+      expect(target.renderStyle.color, isNotNull);
+      expect(
+          target.renderStyle.color.value.toARGB32(), isNot(equals(0xFF000000)));
+    });
+
+    testWidgets('descendant with compound ancestor (attribute + class)',
+        (WidgetTester tester) async {
+      final prepared = await WebFWidgetTestUtils.prepareWidgetTest(
+        tester: tester,
+        controllerName:
+            'descendant-compound-ancestor-${DateTime.now().millisecondsSinceEpoch}',
+        html: '''
+          <html>
+            <head>
+              <style>
+                h1[_ngcontent-abc] { margin: 0; }
+                .content[_ngcontent-abc] h1[_ngcontent-abc] { margin-top: 20px; }
+              </style>
+            </head>
+            <body style="margin: 0; padding: 0;">
+              <div class="content" _ngcontent-abc>
+                <div class="left-side" _ngcontent-abc>
+                  <h1 id="title" _ngcontent-abc>Hello</h1>
+                </div>
+              </div>
+            </body>
+          </html>
+        ''',
+      );
+
+      final h1 = prepared.getElementById('title');
+      // Should pick the ancestor that matches BOTH the attribute and the class
+      // and therefore apply the more specific margin-top.
+      expect(h1.renderStyle.marginTop.computedValue, equals(20.0));
+    });
+  });
+
+  group('Child Selectors', () {
+    testWidgets('direct child selector', (WidgetTester tester) async {
+      final prepared = await WebFWidgetTestUtils.prepareWidgetTest(
+        tester: tester,
+        controllerName:
+            'child-selector-test-${DateTime.now().millisecondsSinceEpoch}',
+        html: '''
+          <html>
+            <head>
+              <style>
+                div > span { color: green; }
+              </style>
+            </head>
+            <body style="margin: 0; padding: 0;">
+              <div id="parent">
+                <span id="direct-child">Green text (direct child)</span>
+                <p>
+                  <span id="nested-span">Default color (not direct child)</span>
+                </p>
+              </div>
+            </body>
+          </html>
+        ''',
+      );
+
+      final directChild = prepared.getElementById('direct-child');
+      final nestedSpan = prepared.getElementById('nested-span');
+
+      expect(directChild.renderStyle.color, isNotNull); // color applied
+      // Nested span should have default color
+      final nestedColor = nestedSpan.renderStyle.color;
+      expect(nestedColor.value.toARGB32(), equals(0xFF000000)); // default black
+    });
+  });
+
+  group('Sibling Selectors', () {
+    testWidgets('adjacent sibling selector', (WidgetTester tester) async {
+      final prepared = await WebFWidgetTestUtils.prepareWidgetTest(
+        tester: tester,
+        controllerName:
+            'adjacent-sibling-test-${DateTime.now().millisecondsSinceEpoch}',
+        html: '''
+          <html>
+            <head>
+              <style>
+                h2 + p { color: red; }
+              </style>
+            </head>
+            <body style="margin: 0; padding: 0;">
+              <h2 id="heading">Heading</h2>
+              <p id="p1">Red text (adjacent to h2)</p>
+              <p id="p2">Default color (not adjacent)</p>
+            </body>
+          </html>
+        ''',
+      );
+
+      final p1 = prepared.getElementById('p1');
+      final p2 = prepared.getElementById('p2');
+
+      expect(p1.renderStyle.color, isNotNull); // color applied
+      // p2 should have default color
+      final p2Color = p2.renderStyle.color;
+      expect(p2Color.value.toARGB32(), equals(0xFF000000)); // default black
+    });
+
+    testWidgets('general sibling selector', (WidgetTester tester) async {
+      final prepared = await WebFWidgetTestUtils.prepareWidgetTest(
+        tester: tester,
+        controllerName:
+            'general-sibling-test-${DateTime.now().millisecondsSinceEpoch}',
+        html: '''
+          <html>
+            <head>
+              <style>
+                h2 ~ p { color: blue; }
+              </style>
+            </head>
+            <body style="margin: 0; padding: 0;">
+              <h2>Heading</h2>
+              <p id="p1">Blue text (general sibling, adjacent)</p>
+              <div>Divider</div>
+              <p id="p2">Also blue text</p>
+            </body>
+          </html>
+        ''',
+      );
+
+      final p1 = prepared.getElementById('p1');
+      final p2 = prepared.getElementById('p2');
+
+      expect(p1.renderStyle.color.value.toARGB32(), equals(0xFF0000FF)); // blue
+      expect(p2.renderStyle.color.value.toARGB32(), equals(0xFF0000FF)); // blue
+    });
+
+    testWidgets('general sibling with child + :not()',
+        (WidgetTester tester) async {
+      final prepared = await WebFWidgetTestUtils.prepareWidgetTest(
+        tester: tester,
+        controllerName:
+            'general-sibling-child-not-test-${DateTime.now().millisecondsSinceEpoch}',
+        html: '''
+          <html>
+            <head>
+              <style>
+                .space-y-2 > :not([hidden]) ~ :not([hidden]) { color: blue; }
+              </style>
+            </head>
+            <body style="margin: 0; padding: 0;">
+              <div class="space-y-2">
+                <p id="p1">Default color (first child)</p>
+                <p id="p2">Blue text (second child)</p>
+                <p id="p3">Blue text (third child)</p>
+              </div>
+            </body>
+          </html>
+        ''',
+      );
+
+      final p1 = prepared.getElementById('p1');
+      final p2 = prepared.getElementById('p2');
+      final p3 = prepared.getElementById('p3');
+
+      expect(p1.renderStyle.color.value.toARGB32(),
+          equals(0xFF000000)); // default black
+      expect(p2.renderStyle.color.value.toARGB32(), equals(0xFF0000FF)); // blue
+      expect(p3.renderStyle.color.value.toARGB32(), equals(0xFF0000FF)); // blue
+    });
+
+    testWidgets('general sibling updates after insertBefore',
+        (WidgetTester tester) async {
+      final prepared = await WebFWidgetTestUtils.prepareWidgetTest(
+        tester: tester,
+        controllerName:
+            'general-sibling-insertbefore-test-${DateTime.now().millisecondsSinceEpoch}',
+        html: '''
+          <html>
+            <head>
+              <style>
+                .space-y-2 > :not([hidden]) ~ :not([hidden]) { color: blue; }
+              </style>
+            </head>
+            <body style="margin: 0; padding: 0;">
+              <div class="space-y-2" id="c">
+                <p id="p2">Second (initial first)</p>
+                <p id="p3">Third (initial second)</p>
+              </div>
+            </body>
+          </html>
+        ''',
+      );
+
+      final container = prepared.getElementById('c');
+      final p2 = prepared.getElementById('p2');
+      final p3 = prepared.getElementById('p3');
+
+      // Initial: only p3 matches because it has a previous sibling.
+      expect(p2.renderStyle.color.value.toARGB32(),
+          equals(0xFF000000)); // default black
+      expect(p3.renderStyle.color.value.toARGB32(), equals(0xFF0000FF)); // blue
+
+      // Insert p1 before p2; this should cause p2 to start matching the "~" selector.
+      await tester.runAsync(() async {
+        await prepared.controller.view.evaluateJavaScripts('''
+          (function () {
+            const c = document.getElementById('c');
+            const p2 = document.getElementById('p2');
+            const p1 = document.createElement('p');
+            p1.id = 'p1';
+            p1.textContent = 'First (inserted)';
+            c.insertBefore(p1, p2);
+          })();
+        ''');
+        prepared.document.updateStyleIfNeeded();
+      });
+
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      final p2After = prepared.getElementById('p2');
+      expect(p2After.renderStyle.color.value.toARGB32(),
+          equals(0xFF0000FF)); // blue
+    });
+  });
+
+  group('Combinator Selectors', () {
+    testWidgets('multiple combinators', (WidgetTester tester) async {
+      final prepared = await WebFWidgetTestUtils.prepareWidgetTest(
+        tester: tester,
+        controllerName:
+            'multiple-combinators-test-${DateTime.now().millisecondsSinceEpoch}',
+        html: '''
+          <html>
+            <head>
+              <style>
+                div.container > ul > li { color: red; }
+                div.container p { color: blue; }
+              </style>
+            </head>
+            <body style="margin: 0; padding: 0;">
+              <div class="container">
+                <ul>
+                  <li id="list-item">Red text</li>
+                </ul>
+                <div>
+                  <p id="paragraph">Blue text</p>
+                </div>
+              </div>
+            </body>
+          </html>
+        ''',
+      );
+
+      final li = prepared.getElementById('list-item');
+      final p = prepared.getElementById('paragraph');
+
+      expect(li.renderStyle.color, isNotNull); // color applied
+      expect(p.renderStyle.color, isNotNull); // color applied
+      // They should have different colors
+      expect(areColorsDifferent(li.renderStyle.color, p.renderStyle.color),
+          isTrue);
+    });
+  });
+
+  group('Dynamic Style Changes', () {
+    testWidgets('style removal', skip: true, (WidgetTester tester) async {
+      // TODO: WebF doesn't properly update styles when style elements are removed from DOM
+      final prepared = await WebFWidgetTestUtils.prepareWidgetTest(
+        tester: tester,
+        controllerName:
+            'style-removal-test-${DateTime.now().millisecondsSinceEpoch}',
+        html: '''
+          <html>
+            <head>
+              <style id="style1">
+                .red { color: red; }
+              </style>
+            </head>
+            <body style="margin: 0; padding: 0;">
+              <div id="test" class="red">Text</div>
+            </body>
+          </html>
+        ''',
+      );
+
+      final div = prepared.getElementById('test');
+      final style = prepared.getElementById('style1');
+
+      // Initially has color
+      final initialColor = div.renderStyle.color;
+      expect(initialColor, isNotNull);
+      expect(initialColor.value.toARGB32(),
+          isNot(equals(0xFF000000))); // not default
+
+      // Remove style
+      style.parentNode?.removeChild(style);
+      await tester.pump();
+      await tester.pump(Duration(milliseconds: 100));
+
+      // After style removal, color should change (either to default or be removed)
+      final afterColor = div.renderStyle.color;
+      // If there's still a color, it should either be default black or different from initial
+      expect(
+          afterColor.value.toARGB32() == 0xFF000000 ||
+              afterColor.value != initialColor.value,
+          isTrue,
+          reason:
+              'Color should either be default black or different from initial color');
+    });
+
+    testWidgets('multiple styles cascade', (WidgetTester tester) async {
+      final prepared = await WebFWidgetTestUtils.prepareWidgetTest(
+        tester: tester,
+        controllerName: 'cascade-test-${DateTime.now().millisecondsSinceEpoch}',
+        html: '''
+          <html>
+            <head>
+              <style>
+                .txt { color: red; }
+              </style>
+              <style>
+                .txt { font-size: 20px; }
+              </style>
+            </head>
+            <body style="margin: 0; padding: 0;">
+              <div id="test" class="txt">Red and 20px</div>
+            </body>
+          </html>
+        ''',
+      );
+
+      final div = prepared.getElementById('test');
+
+      // Both styles should apply
+      // Check if color is applied
+      final color = div.renderStyle.color;
+      expect(color, isNotNull);
+      expect(color.value.toARGB32(), isNot(equals(0xFF000000))); // not default
+      expect(div.renderStyle.fontSize.computedValue, equals(20.0));
+    });
+  });
+}

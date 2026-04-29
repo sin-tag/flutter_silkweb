@@ -1,0 +1,1004 @@
+/*
+ * Copyright (C) 2024-present The OpenWebF Company. All rights reserved.
+ * Licensed under GNU GPL with Enterprise exception.
+ */
+/*
+ * Copyright (C) 2019-2022 The Kraken authors. All rights reserved.
+ * Copyright (C) 2022-2024 The WebF authors. All rights reserved.
+ */
+
+import 'dart:async';
+import 'dart:convert';
+import 'dart:ffi';
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:ffi/ffi.dart';
+import 'package:flutter/scheduler.dart';
+import 'package:path/path.dart';
+import 'package:flutter_silkweb/bridge.dart';
+import 'package:flutter_silkweb/foundation.dart';
+import 'package:flutter_silkweb/css.dart';
+import 'package:flutter_silkweb/launcher.dart';
+import 'package:flutter_silkweb/src/devtools/panel/console_store.dart';
+import 'package:flutter_silkweb/src/css/keyframes_bridge.dart';
+
+
+String uint16ToString(Pointer<Uint16> pointer, int length) {
+  return String.fromCharCodes(pointer.asTypedList(length));
+}
+
+Pointer<Uint16> _stringToUint16(String string) {
+  final units = string.codeUnits;
+  final Pointer<Uint16> result = malloc.allocate<Uint16>(units.length * sizeOf<Uint16>());
+  final Uint16List nativeString = result.asTypedList(units.length);
+  nativeString.setAll(0, units);
+  return result;
+}
+
+Pointer<NativeString> stringToNativeString(String string) {
+  Pointer<NativeString> nativeString = malloc.allocate<NativeString>(sizeOf<NativeString>());
+  nativeString.ref.string = _stringToUint16(string);
+  nativeString.ref.length = string.length;
+  return nativeString;
+}
+
+Pointer<Uint8> uint8ListToPointer(Uint8List data) {
+  Pointer<Uint8> ptr = malloc.allocate<Uint8>(sizeOf<Uint8>() * data.length + 1);
+  Uint8List dataView = ptr.asTypedList(data.length + 1);
+  dataView.setAll(0, data);
+  dataView[data.length] = 0;
+  return ptr;
+}
+
+int doubleToUint64(double value) {
+  var byteData = ByteData(8);
+  byteData.setFloat64(0, value);
+  return byteData.getUint64(0);
+}
+
+int doubleToInt64(double value) {
+  var byteData = ByteData(8);
+  byteData.setFloat64(0, value);
+  return byteData.getInt64(0);
+}
+
+double uInt64ToDouble(int value) {
+  var byteData = ByteData(8);
+  byteData.setInt64(0, value);
+  return byteData.getFloat64(0);
+}
+
+String nativeStringToString(Pointer<NativeString> pointer) {
+  final int len = pointer.ref.length;
+  if (len == 0) {
+    return '';
+  }
+  final ptr = pointer.ref.string;
+  if (ptr == nullptr) {
+    return '';
+  }
+  return uint16ToString(ptr, len);
+}
+
+({String key, String value}) nativePairToPairRecord(Pointer<NativePair> pointer, {bool free = false}) {
+  if (pointer != nullptr) {
+    final keyPtr = pointer.ref.key;
+    final valuePtr = pointer.ref.value;
+
+    String key = "";
+    String value = "";
+
+    if (keyPtr != nullptr) {
+      final nativeKey = keyPtr.cast<NativeString>();
+      key = nativeStringToString(nativeKey);
+      if (free)
+        freeNativeString(nativeKey);
+    }
+
+    if (valuePtr != nullptr) {
+      final nativeValue = valuePtr.cast<NativeString>();
+      value = nativeStringToString(nativeValue);
+      if (free)
+        freeNativeString(nativeValue);
+    }
+
+    if (free)
+      malloc.free(pointer);
+
+    return (key: key, value: value);
+  }
+
+  return (key: "", value: "");
+}
+
+Map<String, String> nativeMapToMap(Pointer<NativeMap> pointer) {
+  final map = <String, String>{};
+
+  if (pointer != nullptr) {
+    final nativeMap = pointer.ref;
+    if (nativeMap.items != nullptr) {
+      for (int i = 0; i < nativeMap.length; ++i) {
+        final pair = nativeMap.items + i;
+        final pairDecoded = nativePairToPairRecord(pair);
+        map[pairDecoded.key] = pairDecoded.value;
+      }
+    }
+  }
+
+  return map;
+}
+
+void freeNativeString(Pointer<NativeString> pointer) {
+  malloc.free(pointer.ref.string);
+  malloc.free(pointer);
+}
+
+// Steps for using dart:ffi to call a Dart function from C:
+// 1. Import dart:ffi.
+// 2. Create a typedef with the FFI type signature of the Dart function.
+// 3. Create a typedef for the variable that you’ll use when calling the
+//    Dart function.
+// 4. Open the dynamic library that register in the C.
+// 5. Get a reference to the C function, and put it into a variable.
+// 6. Call from C.
+
+// Register InvokeModule
+typedef NativeAsyncModuleCallback = Pointer<NativeValue> Function(
+    Pointer<Void> callbackContext,
+    Double contextId,
+    Pointer<Utf8> errmsg,
+    Pointer<NativeValue> ptr,
+    Handle context,
+    Pointer<NativeFunction<NativeHandleInvokeModuleResult>> handleResult);
+typedef DartAsyncModuleCallback = Pointer<NativeValue> Function(
+    Pointer<Void> callbackContext,
+    double contextId,
+    Pointer<Utf8> errmsg,
+    Pointer<NativeValue> ptr,
+    Object context,
+    Pointer<NativeFunction<NativeHandleInvokeModuleResult>> handleResult);
+
+typedef NativeHandleInvokeModuleResult = Void Function(Handle context, Pointer<NativeValue> result);
+
+typedef NativeInvokeModule = Pointer<NativeValue> Function(
+    Pointer<Void> callbackContext,
+    Double contextId,
+    Pointer<NativeString> module,
+    Pointer<NativeString> method,
+    Pointer<NativeValue> params,
+    Pointer<Uint8> errmsg,
+    Pointer<NativeFunction<NativeAsyncModuleCallback>>);
+
+class _InvokeModuleResultContext {
+  Completer<dynamic> completer;
+  Pointer<Utf8>? errmsgPtr;
+  Stopwatch? stopwatch;
+  WebFViewController currentView;
+  Pointer<NativeValue>? data;
+  String moduleName;
+  String method;
+  dynamic params;
+
+  _InvokeModuleResultContext(this.completer, this.currentView, this.moduleName, this.method, this.params,
+      {this.errmsgPtr, this.data, this.stopwatch});
+}
+
+void _handleInvokeModuleResult(Object handle, Pointer<NativeValue> result) {
+  _InvokeModuleResultContext context = handle as _InvokeModuleResultContext;
+  var returnValue = fromNativeValue(context.currentView, result);
+
+  if (enableWebFCommandLog && context.stopwatch != null) {
+    bridgeLogger.fine(
+        'Invoke module callback from(name: ${context.moduleName} method: ${context.method}, params: ${context.params}) '
+        'return: $returnValue time: ${context.stopwatch!.elapsedMicroseconds}us');
+  }
+
+  malloc.free(result);
+  if (context.errmsgPtr != null) {
+    malloc.free(context.errmsgPtr!);
+  } else if (context.data != null) {
+    malloc.free(context.data!);
+  }
+
+  context.completer.complete(returnValue);
+}
+
+dynamic invokeModule(Pointer<Void> callbackContext, WebFController controller, String moduleName, String method, params,
+    Pointer<Uint8> errmsg, Pointer<NativeFunction<NativeAsyncModuleCallback>> callback) {
+  WebFViewController currentView = controller.view;
+  dynamic result;
+
+  Stopwatch? stopwatch;
+  if (enableWebFCommandLog) {
+    stopwatch = Stopwatch()..start();
+  }
+
+  try {
+    Future<dynamic> invokeModuleCallback({String? error, data}) {
+      Completer<dynamic> completer = Completer();
+      // To make sure Promise then() and catch() executed before Promise callback called at JavaScript side.
+      // We should make callback always async.
+      Future.microtask(() {
+        if (controller.view != currentView || currentView.disposed || callback == nullptr) return;
+
+        Pointer<NativeFunction<NativeHandleInvokeModuleResult>> handleResult =
+            Pointer.fromFunction(_handleInvokeModuleResult);
+        if (error != null) {
+          Pointer<Utf8> errmsgPtr = error.toNativeUtf8();
+          _InvokeModuleResultContext context = _InvokeModuleResultContext(
+              completer, currentView, moduleName, method, params,
+              errmsgPtr: errmsgPtr, stopwatch: stopwatch);
+          DartAsyncModuleCallback fn = callback.asFunction();
+
+          fn(callbackContext, currentView.contextId, errmsgPtr, nullptr, context, handleResult);
+        } else {
+          Pointer<NativeValue> dataPtr = malloc.allocate(sizeOf<NativeValue>());
+          toNativeValue(dataPtr, data);
+          _InvokeModuleResultContext context = _InvokeModuleResultContext(
+              completer, currentView, moduleName, method, params,
+              data: dataPtr, stopwatch: stopwatch);
+          DartAsyncModuleCallback fn = callback.asFunction();
+          fn(callbackContext, currentView.contextId, nullptr, dataPtr, context, handleResult);
+        }
+
+        // Add fallbacks for handing result was not returned.
+        Timer(Duration(seconds: 1), () {
+          if (!completer.isCompleted) {
+            completer.complete();
+          }
+        });
+      });
+      return completer.future;
+    }
+
+    result = controller.module.moduleManager.invokeModule(moduleName, method, params, invokeModuleCallback);
+  } catch (e, stack) {
+    if (enableWebFCommandLog) {
+      bridgeLogger.severe('Invoke module failed', e, stack);
+    }
+    String error = '$e\n$stack';
+
+    if (callback == nullptr) {
+      final msgList = errmsg.asTypedList(1024);
+      Uint8List bytes = utf8.encode(error);
+      int max = bytes.length > 1020 ? 1020 : bytes.length;
+      msgList.setAll(0, bytes.sublist(0, max));
+      msgList[max + 1] = 0;
+    } else {
+      DartAsyncModuleCallback fn = callback.asFunction();
+      fn(callbackContext, currentView.contextId, error.toNativeUtf8(), nullptr, {}, nullptr);
+    }
+  }
+
+  if (enableWebFCommandLog) {
+    bridgeLogger.fine('Invoke module name: $moduleName method: $method, params: $params '
+        'return: $result time: ${stopwatch!.elapsedMicroseconds}us');
+  }
+
+  return result;
+}
+
+Pointer<NativeValue> _invokeModule(
+    Pointer<Void> callbackContext,
+    double contextId,
+    Pointer<NativeString> module,
+    Pointer<NativeString> method,
+    Pointer<NativeValue> params,
+    Pointer<Uint8> errmsg,
+    Pointer<NativeFunction<NativeAsyncModuleCallback>> callback) {
+
+  WebFController controller = WebFController.getControllerOfJSContextId(contextId)!;
+
+  String moduleValue = nativeStringToString(module);
+  String methodValue = nativeStringToString(method);
+  dynamic paramsValue = fromNativeValue(controller.view, params);
+
+  dynamic result = invokeModule(
+      callbackContext, controller, moduleValue, methodValue, paramsValue, errmsg, callback);
+
+  Pointer<NativeValue> returnValue = malloc.allocate(sizeOf<NativeValue>());
+  toNativeValue(returnValue, result);
+
+  return returnValue;
+}
+
+final Pointer<NativeFunction<NativeInvokeModule>> _nativeInvokeModule = Pointer.fromFunction(_invokeModule);
+
+// Register reloadApp
+typedef NativeReloadApp = Void Function(Double contextId);
+
+void _reloadApp(double contextId) async {
+  WebFController controller = WebFController.getControllerOfJSContextId(contextId)!;
+
+  try {
+    await controller.reload();
+  } catch (e, stack) {
+    bridgeLogger.severe('Dart Error', e, stack);
+  }
+}
+
+final Pointer<NativeFunction<NativeReloadApp>> _nativeReloadApp = Pointer.fromFunction(_reloadApp);
+
+typedef NativeAsyncCallback = Void Function(Pointer<Void> callbackContext, Double contextId, Pointer<Utf8> errmsg);
+typedef DartAsyncCallback = void Function(Pointer<Void> callbackContext, double contextId, Pointer<Utf8> errmsg);
+typedef NativeRAFAsyncCallback = Void Function(
+    Pointer<Void> callbackContext, Double contextId, Double data, Pointer<Utf8> errmsg);
+typedef NativeRequestIdleAsyncCallback = Void Function(Pointer<Void> callbackContext, Double contextId, Double timeout);
+typedef DartRequestIdleAsyncCallback = void Function(Pointer<Void> callbackContext, double contextId, double timeout);
+typedef DartRAFAsyncCallback = void Function(Pointer<Void>, double contextId, double data, Pointer<Utf8> errmsg);
+
+// Register requestBatchUpdate
+typedef NativeRequestBatchUpdate = Void Function(Double contextId);
+
+void _requestBatchUpdate(double contextId) {
+  WebFController? controller = WebFController.getControllerOfJSContextId(contextId);
+  return controller?.module.requestBatchUpdate();
+}
+
+final Pointer<NativeFunction<NativeRequestBatchUpdate>> _nativeRequestBatchUpdate =
+    Pointer.fromFunction(_requestBatchUpdate);
+
+// Register setTimeout
+typedef NativeSetTimeout = Void Function(Int32 newTimerId, Pointer<Void> callbackContext, Double contextId,
+    Pointer<NativeFunction<NativeAsyncCallback>>, Int32);
+
+void _setTimeout(int newTimerId, Pointer<Void> callbackContext, double contextId,
+    Pointer<NativeFunction<NativeAsyncCallback>> callback, int timeout) {
+  WebFController controller = WebFController.getControllerOfJSContextId(contextId)!;
+  WebFViewController currentView = controller.view;
+
+  controller.module.setTimeout(newTimerId, timeout, () {
+    DartAsyncCallback func = callback.asFunction();
+    void runCallback() {
+      if (controller.view != currentView || currentView.disposed) return;
+
+      try {
+        func(callbackContext, contextId, nullptr);
+      } catch (e, stack) {
+        Pointer<Utf8> nativeErrorMessage = ('Error: $e\n$stack').toNativeUtf8();
+        func(callbackContext, contextId, nativeErrorMessage);
+      }
+    }
+
+    // Pause if webf page paused.
+    runCallback();
+  });
+}
+
+final Pointer<NativeFunction<NativeSetTimeout>> _nativeSetTimeout = Pointer.fromFunction(_setTimeout);
+
+// Register setInterval
+typedef NativeSetInterval = Void Function(Int32 newTimerId, Pointer<Void> callbackContext, Double contextId,
+    Pointer<NativeFunction<NativeAsyncCallback>>, Int32);
+
+void _setInterval(int newTimerId, Pointer<Void> callbackContext, double contextId,
+    Pointer<NativeFunction<NativeAsyncCallback>> callback, int timeout) {
+  WebFController controller = WebFController.getControllerOfJSContextId(contextId)!;
+  WebFViewController currentView = controller.view;
+  controller.module.setInterval(newTimerId, timeout, () {
+    void runCallbacks() {
+      if (controller.view != currentView || currentView.disposed) return;
+
+      DartAsyncCallback func = callback.asFunction();
+      try {
+        func(callbackContext, contextId, nullptr);
+      } catch (e, stack) {
+        Pointer<Utf8> nativeErrorMessage = ('Dart Error: $e\n$stack').toNativeUtf8();
+        func(callbackContext, contextId, nativeErrorMessage);
+      }
+    }
+
+    runCallbacks();
+  });
+}
+
+final Pointer<NativeFunction<NativeSetInterval>> _nativeSetInterval = Pointer.fromFunction(_setInterval);
+
+// Register clearTimeout
+typedef NativeClearTimeout = Void Function(Double contextId, Int32);
+
+void _clearTimeout(double contextId, int timerId) {
+  WebFController controller = WebFController.getControllerOfJSContextId(contextId)!;
+  return controller.module.clearTimeout(timerId);
+}
+
+final Pointer<NativeFunction<NativeClearTimeout>> _nativeClearTimeout = Pointer.fromFunction(_clearTimeout);
+// Register cancelAnimationFrame
+typedef NativeCancelAnimationFrame = Void Function(Double contextId, Int32 id);
+
+void _cancelAnimationFrame(double contextId, int timerId) {
+  WebFController controller = WebFController.getControllerOfJSContextId(contextId)!;
+  controller.module.cancelAnimationFrame(timerId);
+}
+
+final Pointer<NativeFunction<NativeCancelAnimationFrame>> _nativeCancelAnimationFrame =
+    Pointer.fromFunction(_cancelAnimationFrame);
+
+typedef NativeRequestIdleCallback = Void Function(Int32 newIdleId, Pointer<Void> callbackContext, Double contextId,
+    Double timeout, Int32 uiCommandSize, Pointer<NativeFunction<NativeRequestIdleAsyncCallback>>);
+
+void _requestIdleCallback(int newIdleId, Pointer<Void> callbackContext, double contextId, double timeout,
+    int uiCommandSize, Pointer<NativeFunction<NativeRequestIdleAsyncCallback>> callback) {
+  WebFController controller = WebFController.getControllerOfJSContextId(contextId)!;
+  Timer timer = Timer(Duration(milliseconds: timeout.toInt()), () {
+    controller.module.cancelIdleCallback(newIdleId);
+    SchedulerBinding.instance.addPostFrameCallback((timestamp) {
+      if (controller.disposed) return;
+      DartRequestIdleAsyncCallback f = callback.asFunction();
+      f(callbackContext, contextId, 0);
+    });
+    SchedulerBinding.instance.scheduleFrame();
+  });
+  try {
+    controller.module.requestIdleCallback(contextId, newIdleId, uiCommandSize, (double remainingTime) {
+      timer.cancel();
+      if (controller.disposed) return;
+      DartRequestIdleAsyncCallback f = callback.asFunction();
+      f(callbackContext, contextId, remainingTime);
+    });
+  } catch (e, stack) {
+    bridgeLogger.severe('Error in requestIdleCallback', e, stack);
+  }
+}
+
+final Pointer<NativeFunction<NativeRequestIdleCallback>> _nativeRequestIdleCallback =
+    Pointer.fromFunction(_requestIdleCallback);
+
+// Register cancelAnimationFrame
+typedef NativeCancelIdleCallback = Void Function(Double contextId, Int32 id);
+
+void _cancelIdleCallback(double contextId, int idleId) {
+  WebFController controller = WebFController.getControllerOfJSContextId(contextId)!;
+  controller.module.cancelAnimationFrame(idleId);
+}
+
+final Pointer<NativeFunction<NativeCancelIdleCallback>> _nativeCancelIdleCallback =
+    Pointer.fromFunction(_cancelIdleCallback);
+
+typedef NativeAsyncBlobCallback = Void Function(
+    Pointer<Void> callbackContext, Double contextId, Pointer<Utf8>, Pointer<Uint8>, Int32);
+typedef DartAsyncBlobCallback = void Function(
+    Pointer<Void> callbackContext, double contextId, Pointer<Utf8>, Pointer<Uint8>, int);
+typedef NativeToBlob = Void Function(Pointer<Void> callbackContext, Double contextId,
+    Pointer<NativeFunction<NativeAsyncBlobCallback>>, Pointer<Void>, Double);
+
+void _toBlob(Pointer<Void> callbackContext, double contextId, Pointer<NativeFunction<NativeAsyncBlobCallback>> callback,
+    Pointer<Void> elementPtr, double devicePixelRatio) {
+  DartAsyncBlobCallback func = callback.asFunction();
+  WebFController controller = WebFController.getControllerOfJSContextId(contextId)!;
+  controller.view.toImage(devicePixelRatio, elementPtr).then((Uint8List bytes) {
+    Pointer<Uint8> bytePtr = malloc.allocate<Uint8>(sizeOf<Uint8>() * bytes.length);
+    Uint8List byteList = bytePtr.asTypedList(bytes.length);
+    byteList.setAll(0, bytes);
+    func(callbackContext, contextId, nullptr, bytePtr, bytes.length);
+  }).catchError((error, stack) {
+    Pointer<Utf8> nativeErrorMessage = ('$error\n$stack').toNativeUtf8();
+    func(callbackContext, contextId, nativeErrorMessage, nullptr, 0);
+  });
+}
+
+final Pointer<NativeFunction<NativeToBlob>> _nativeToBlob = Pointer.fromFunction(_toBlob);
+
+typedef NativeFlushUICommand = Void Function(Double contextId, Pointer<NativeBindingObject> selfPointer);
+typedef DartFlushUICommand = void Function(double contextId, Pointer<NativeBindingObject> selfPointer);
+
+void _flushUICommand(double contextId, Pointer<NativeBindingObject> selfPointer) {
+  flushUICommandWithContextId(contextId, selfPointer);
+}
+
+final Pointer<NativeFunction<NativeFlushUICommand>> _nativeFlushUICommand = Pointer.fromFunction(_flushUICommand);
+
+typedef NativeCreateBindingObject = Void Function(Double contextId, Pointer<NativeBindingObject> nativeBindingObject,
+    Int32 type, Pointer<NativeValue> args, Int32 argc);
+typedef DartCreateBindingObject = void Function(
+    double contextId, Pointer<NativeBindingObject> nativeBindingObject, int type, Pointer<NativeValue> args, int argc);
+
+void _createBindingObject(
+    double contextId, Pointer<NativeBindingObject> nativeBindingObject, int type, Pointer<NativeValue> args, int argc) {
+  BindingBridge.createBindingObject(contextId, nativeBindingObject, CreateBindingObjectType.values[type], args, argc);
+}
+
+final Pointer<NativeFunction<NativeCreateBindingObject>> _nativeCreateBindingObject =
+    Pointer.fromFunction(_createBindingObject);
+
+typedef NativeLoadNativeLibrary = Void Function(
+    Double contextId,
+    Pointer<NativeString> libName,
+    Pointer<Void> initializeData,
+    Pointer<Void> importData,
+    Pointer<NativeFunction<NativeLoadNativeLibraryCallback>> callback);
+typedef NativeLoadNativeLibraryCallback = Pointer<Void> Function(
+    Pointer<NativeFunction<StandardWebFPluginExternalSymbol>> entryPoint,
+    Pointer<NativeString> libName,
+    Pointer<Void> initializeData,
+    Double contextId,
+    Pointer<Void> exportData);
+typedef DartLoadNativeLibraryCallback = Pointer<Void> Function(
+    Pointer<NativeFunction<StandardWebFPluginExternalSymbol>> entryPoint,
+    Pointer<NativeString> libName,
+    Pointer<Void> initializeData,
+    double contextId,
+    Pointer<Void> exportData);
+
+typedef StandardWebFPluginExternalSymbol = Void Function();
+typedef DartStandardWebFPluginExternalSymbol = void Function();
+
+String _getNativeLibraryName(String prefix) {
+  if (Platform.isMacOS || Platform.isIOS) {
+    return '$prefix.framework/$prefix';
+  } else if (Platform.isWindows) {
+    return '$prefix.dll';
+  } else if (Platform.isAndroid || Platform.isLinux) {
+    return 'lib$prefix.so';
+  } else {
+    throw UnimplementedError('Not supported platform.');
+  }
+}
+
+void _loadNativeLibrary(double contextId, Pointer<NativeString> nativeLibName, Pointer<Void> initializeData,
+    Pointer<Void> importData, Pointer<NativeFunction<NativeLoadNativeLibraryCallback>> nativeCallback) {
+  String libName = nativeStringToString(nativeLibName);
+  final String defaultLibraryPath = Platform.isLinux ? '\$ORIGIN' : '';
+  DartLoadNativeLibraryCallback callback = nativeCallback.asFunction(isLeaf: true);
+  try {
+    final library = DynamicLibrary.open(join(defaultLibraryPath, _getNativeLibraryName(libName)));
+    String entrySymbol = Platform.environment['WEBF_ENABLE_TEST'] != null ? 'init_webf_test_app' : 'init_webf_app';
+    Pointer<NativeFunction<StandardWebFPluginExternalSymbol>> nativeFunction =
+        library.lookup<NativeFunction<StandardWebFPluginExternalSymbol>>(entrySymbol);
+
+    callback(nativeFunction, nativeLibName, initializeData, contextId, importData);
+  } catch (e, stack) {
+    String errmsg = '$e\n$stack';
+    callback(nullptr, nativeLibName, initializeData, contextId, errmsg.toNativeUtf8().cast<Void>());
+  }
+}
+
+final Pointer<NativeFunction<NativeLoadNativeLibrary>> _nativeLoadLibrary = Pointer.fromFunction(_loadNativeLibrary);
+
+// Typedefs for FetchJavaScriptESMModule
+typedef NativeFetchJavaScriptESMModuleCallback = Void Function(
+    Pointer<Void> callbackContext,
+    Double contextId,
+    Pointer<Utf8> error,
+    Pointer<Uint8> bytes,
+    Int32 length);
+typedef DartFetchJavaScriptESMModuleCallback = void Function(
+    Pointer<Void> callbackContext,
+    double contextId,
+    Pointer<Utf8> error,
+    Pointer<Uint8> bytes,
+    int length);
+
+typedef NativeFetchJavaScriptESMModule = Void Function(
+    Pointer<Void> callbackContext,
+    Double contextId,
+    Pointer<NativeString> moduleUrl,
+    Pointer<NativeFunction<NativeFetchJavaScriptESMModuleCallback>> callback);
+
+void _fetchJavaScriptESMModule(Pointer<Void> callbackContext, double contextId, Pointer<NativeString> nativeModuleUrl,
+    Pointer<NativeFunction<NativeFetchJavaScriptESMModuleCallback>> nativeCallback) async {
+  String moduleUrl = nativeStringToString(nativeModuleUrl);
+  DartFetchJavaScriptESMModuleCallback callback = nativeCallback.asFunction(isLeaf: true);
+
+  try {
+    WebFController? controller = WebFController.getControllerOfJSContextId(contextId);
+    if (controller == null) {
+      callback(callbackContext, contextId, 'No controller found for context $contextId'.toNativeUtf8(), nullptr, 0);
+      return;
+    }
+
+    // Resolve the module URL relative to the base URL
+    String? baseUrl = controller.url;
+    Uri? resolvedUri;
+
+    // Check if it's already an absolute URL
+    if (moduleUrl.startsWith('http://') || moduleUrl.startsWith('https://')) {
+      // HTTP/HTTPS URLs should be used as-is
+      resolvedUri = Uri.tryParse(moduleUrl);
+    } else if (moduleUrl.startsWith('file://') || moduleUrl.startsWith('assets:')) {
+      // File and asset URLs are also absolute
+      resolvedUri = Uri.tryParse(moduleUrl);
+    } else if (moduleUrl.startsWith('//')) {
+      // Protocol-relative URL (e.g., //cdn.example.com/module.js)
+      // Use https by default
+      resolvedUri = Uri.tryParse('https:$moduleUrl');
+    } else if (moduleUrl.startsWith('/')) {
+      // Absolute path - this is tricky when base is assets://
+      // For HTTP imports from assets, we need to handle this specially
+      if (baseUrl.startsWith('assets:')) {
+        // Can't resolve absolute paths against assets, treat as error
+        callback(callbackContext, contextId, 'Cannot resolve absolute path "$moduleUrl" from assets URL'.toNativeUtf8(), nullptr, 0);
+        return;
+      } else {
+        Uri? baseUri = Uri.tryParse(baseUrl);
+        if (baseUri != null) {
+          resolvedUri = baseUri.resolve(moduleUrl);
+        }
+      }
+    } else {
+      // Relative URL - resolve against base URL
+      Uri? baseUri = Uri.tryParse(baseUrl);
+      if (baseUri != null) {
+        // Special handling for assets URLs
+        if (baseUrl.startsWith('assets:')) {
+          // For assets, we need to handle the path resolution manually
+          // Example: base = "assets:///assets/esm_demo.html", module = "modules/math.js"
+          // Result should be "assets:///assets/modules/math.js"
+          String basePath = baseUrl.substring('assets:///'.length);
+          int lastSlash = basePath.lastIndexOf('/');
+          if (lastSlash != -1) {
+            basePath = basePath.substring(0, lastSlash + 1);
+          } else {
+            basePath = '';
+          }
+          String resolvedPath = '$basePath$moduleUrl';
+          resolvedUri = Uri.parse('assets:///$resolvedPath');
+        } else {
+          resolvedUri = baseUri.resolve(moduleUrl);
+        }
+      }
+    }
+
+    if (resolvedUri == null) {
+      callback(callbackContext, contextId, 'Failed to resolve module URL: $moduleUrl'.toNativeUtf8(), nullptr, 0);
+      return;
+    }
+
+    // Use WebFBundle to fetch the module content
+    WebFBundle bundle = WebFBundle.fromUrl(resolvedUri.toString(), additionalHttpHeaders: {'Accept': '*/*'}, contentType: ContentType('application', 'javascript', charset: UTF_8));
+    await bundle.resolve();
+    await bundle.obtainData(contextId);
+
+    if (bundle.data == null) {
+      callback(callbackContext, contextId, 'Failed to fetch module: ${resolvedUri.toString()}'.toNativeUtf8(), nullptr, 0);
+    } else {
+      // Pass the module content to C++
+      Pointer<Uint8> bytesPtr = malloc.allocate<Uint8>(bundle.data!.length + 1);
+      Uint8List dataView = bytesPtr.asTypedList(bundle.data!.length + 1);
+      dataView.setAll(0, bundle.data!);
+      dataView[bundle.data!.length] = 0; // Null terminate
+      callback(callbackContext, contextId, nullptr, bytesPtr, bundle.data!.length);
+    }
+
+    bundle.dispose();
+  } catch (e, stack) {
+    String errmsg = '$e\n$stack';
+    callback(callbackContext, contextId, errmsg.toNativeUtf8(), nullptr, 0);
+  }
+}
+
+final Pointer<NativeFunction<NativeFetchJavaScriptESMModule>> _nativeFetchJavaScriptESMModule =
+    Pointer.fromFunction(_fetchJavaScriptESMModule);
+
+typedef NativeJSError = Void Function(Double contextId, Pointer<Utf8>);
+
+void _onJSError(double contextId, Pointer<Utf8> charStr) {
+  WebFController? controller = WebFController.getControllerOfJSContextId(contextId);
+  JSErrorHandler? handler = controller?.onJSError;
+  if (handler != null) {
+    String msg = charStr.toDartString();
+    handler(msg);
+  }
+  malloc.free(charStr);
+}
+
+final Pointer<NativeFunction<NativeJSError>> _nativeOnJsError = Pointer.fromFunction(_onJSError);
+
+typedef NativeJSLog = Void Function(Double contextId, Int32 level, Pointer<Utf8>);
+
+void _onJSLog(double contextId, int level, Pointer<Utf8> charStr) {
+  String msg = charStr.toDartString();
+  WebFController? controller = WebFController.getControllerOfJSContextId(contextId);
+  if (controller != null) {
+    JSLogHandler? jsLogHandler = controller.onJSLog;
+    if (jsLogHandler != null) {
+      jsLogHandler(level, msg);
+    }
+  }
+  malloc.free(charStr);
+}
+
+final Pointer<NativeFunction<NativeJSLog>> _nativeOnJsLog = Pointer.fromFunction(_onJSLog);
+
+// Structured console log handler
+typedef NativeOnJSLogStructured = Void Function(Double contextId, Int32 level, Int32 argc, Pointer<NativeValue> argv);
+
+void _onJSLogStructured(double contextId, int level, int argc, Pointer<NativeValue> argv) {
+  List<ConsoleValue> consoleArgs = [];
+  WebFController? controller = WebFController.getControllerOfJSContextId(contextId);
+
+  // Skip processing if we don't have a valid controller
+  if (controller == null) {
+    malloc.free(argv);
+    return;
+  }
+
+  for (int i = 0; i < argc; i++) {
+    final nativeValuePtr = Pointer<NativeValue>.fromAddress(argv.address + i * sizeOf<NativeValue>());
+
+    // Check the tag directly to determine the type
+    final tag = nativeValuePtr.ref.tag;
+    final value = fromNativeValue(controller.view, nativeValuePtr);
+
+    if (value is Map && value['type'] == 'remote-object') {
+      consoleArgs.add(ConsoleRemoteObject(
+        objectId: value['objectId'],
+        className: value['className'],
+        description: value['description'],
+        objectType: RemoteObjectType.values[value['objectType'] ?? 0],
+      ));
+    } else {
+      // Handle primitive values
+      String type = 'unknown';
+
+      // Check the native tag directly for proper type identification
+      if (tag == JSValueType.tagNull.index) {
+        type = 'null';
+      } else if (tag == JSValueType.tagUndefined.index) {
+        type = 'undefined';
+      } else if (tag == JSValueType.tagBool.index) {
+        type = 'boolean';
+      } else if (tag == JSValueType.tagInt.index || tag == JSValueType.tagFloat64.index) {
+        type = 'number';
+      } else if (tag == JSValueType.tagString.index) {
+        type = 'string';
+      }
+
+      consoleArgs.add(ConsolePrimitiveValue(value, type));
+    }
+  }
+
+  // Generate display message
+  String displayMsg = consoleArgs.map((arg) {
+    if (arg is ConsolePrimitiveValue) {
+      return arg.displayString;
+    } else if (arg is ConsoleRemoteObject) {
+      return arg.description;
+    }
+    return arg.toString();
+  }).join(' ');
+
+  ConsoleStore.instance.addStructuredLog(
+    contextId.toInt(),
+    level,
+    consoleArgs,
+    displayMsg,
+  );
+
+  // Also call the regular log handler
+  JSLogHandler? jsLogHandler = controller.onJSLog;
+  if (jsLogHandler != null) {
+    jsLogHandler(level, displayMsg);
+  }
+
+  // Free the native values
+  malloc.free(argv);
+}
+
+  final Pointer<NativeFunction<NativeOnJSLogStructured>> _nativeOnJSLogStructured = Pointer.fromFunction(_onJSLogStructured);
+
+// ===== CSS @import fetch (Bridge -> Dart) =====
+// C++ requests CSS content for @import; Dart resolves URL and fetches, then
+// calls back with bytes or error.
+typedef NativeFetchImportCSSContentCallback = Void Function(
+    Pointer<Void> callbackContext,
+    Double contextId,
+    Pointer<Utf8> error,
+    Pointer<Uint8> bytes,
+    Int32 length);
+typedef DartFetchImportCSSContentCallback = void Function(
+    Pointer<Void> callbackContext,
+    double contextId,
+    Pointer<Utf8> error,
+    Pointer<Uint8> bytes,
+    int length);
+
+typedef NativeFetchImportCSSContent = Void Function(
+    Pointer<Void> callbackContext,
+    Double contextId,
+    Pointer<NativeString> baseHref,
+    Pointer<NativeString> importHref,
+    Pointer<NativeFunction<NativeFetchImportCSSContentCallback>> callback);
+
+void _fetchImportCSSContent(
+    Pointer<Void> callbackContext,
+    double contextId,
+    Pointer<NativeString> nativeBaseHref,
+    Pointer<NativeString> nativeImportHref,
+    Pointer<NativeFunction<NativeFetchImportCSSContentCallback>> nativeCallback) async {
+  DartFetchImportCSSContentCallback callback = nativeCallback.asFunction(isLeaf: true);
+
+  try {
+    WebFController? controller = WebFController.getControllerOfJSContextId(contextId);
+    if (controller == null) {
+      bridgeLogger.severe('[@import] no controller for context $contextId');
+      callback(callbackContext, contextId, 'No controller for context'.toNativeUtf8(), nullptr, 0);
+      return;
+    }
+
+    final String baseHrefRaw = nativeStringToString(nativeBaseHref);
+    final String importHref = nativeStringToString(nativeImportHref);
+    // Resolve relative import URL against the stylesheet base href
+    // Fallback: if base is empty, use the document URL as base.
+    final String effectiveBase = baseHrefRaw.isNotEmpty ? baseHrefRaw : controller.url;
+    if (effectiveBase.isEmpty) {
+      bridgeLogger.severe('[@import] empty base href (base="$baseHrefRaw", controller.url="${controller.url}")');
+      callback(callbackContext, contextId, 'Empty base href'.toNativeUtf8(), nullptr, 0);
+      return;
+    }
+    Uri resolved = controller.uriParser!.resolve(Uri.parse(effectiveBase), Uri.parse(importHref));
+    bridgeLogger.fine('[@import] fetchImportCSSContent base=$baseHrefRaw (effective=$effectiveBase) import=$importHref -> $resolved');
+
+    final String url = resolved.toString();
+    WebFBundle bundle = controller.getPreloadBundleFromUrl(url) ?? WebFBundle.fromUrl(url);
+    try {
+      await bundle.resolve(baseUrl: controller.url, uriParser: controller.uriParser);
+      await bundle.obtainData(controller.view.contextId);
+
+      final String cssText = await resolveStringFromData(bundle.data!);
+      bridgeLogger.fine('[@import] fetched ${cssText.length} bytes from $resolved');
+      final bytes = utf8.encode(cssText);
+      Pointer<Uint8> ptr = malloc.allocate(sizeOf<Uint8>() * bytes.length);
+      ptr.asTypedList(bytes.length).setAll(0, bytes);
+      callback(callbackContext, contextId, nullptr, ptr, bytes.length);
+    } catch (e, stack) {
+      final msg = '[@import] fetch error for $resolved: $e\n$stack';
+      bridgeLogger.severe(msg);
+      final err = (msg).toNativeUtf8();
+      callback(callbackContext, contextId, err, nullptr, 0);
+    } finally {
+      bundle.dispose();
+    }
+  } catch (e, stack) {
+    final msg = '[@import] unexpected error: $e\n$stack';
+    bridgeLogger.severe(msg);
+    final err = (msg).toNativeUtf8();
+    callback(callbackContext, contextId, err, nullptr, 0);
+  }
+}
+
+final Pointer<NativeFunction<NativeFetchImportCSSContent>> _nativeFetchImportCSSContent =
+    Pointer.fromFunction(_fetchImportCSSContent);
+
+  final List<int> _dartNativeMethods = [
+    _nativeInvokeModule.address,
+    _nativeRequestBatchUpdate.address,
+    _nativeReloadApp.address,
+    _nativeSetTimeout.address,
+    _nativeSetInterval.address,
+    _nativeClearTimeout.address,
+    _nativeRequestIdleCallback.address,
+    _nativeCancelAnimationFrame.address,
+    _nativeCancelIdleCallback.address,
+    _nativeToBlob.address,
+    _nativeFlushUICommand.address,
+    _nativeCreateBindingObject.address,
+    _nativeLoadLibrary.address,
+    _nativeFetchJavaScriptESMModule.address,
+    _nativeOnJsError.address,
+    _nativeOnJsLog.address,
+    _nativeOnJSLogStructured.address,
+    _nativeFetchImportCSSContent.address,
+    _nativeRegisterFontFace.address,
+    _nativeUnregisterFontFace.address,
+    _nativeRegisterKeyframes.address,
+    _nativeUnregisterKeyframes.address,
+  ];
+
+// ===== FontFace registration (Bridge -> Dart) =====
+typedef NativeRegisterFontFace = Void Function(
+    Double contextId,
+    Int64 sheetId,
+    Pointer<NativeString> fontFamily,
+    Pointer<NativeString> src,
+    Pointer<NativeString> fontWeight,
+    Pointer<NativeString> fontStyle,
+    Pointer<NativeString> baseHref);
+
+void _registerFontFace(
+  double contextId,
+  int sheetId,
+  Pointer<NativeString> nativeFontFamily,
+  Pointer<NativeString> nativeSrc,
+  Pointer<NativeString> nativeFontWeight,
+  Pointer<NativeString> nativeFontStyle,
+  Pointer<NativeString> nativeBaseHref,
+) {
+  try {
+    final String fontFamily = nativeStringToString(nativeFontFamily);
+    final String src = nativeStringToString(nativeSrc);
+    final String fontWeight = nativeStringToString(nativeFontWeight);
+    final String fontStyle = nativeStringToString(nativeFontStyle);
+    final String baseHref = nativeStringToString(nativeBaseHref);
+
+    CSSFontFace.registerFromBridge(
+      sheetId: sheetId,
+      fontFamily: fontFamily,
+      src: src,
+      fontWeight: fontWeight.isEmpty ? null : fontWeight,
+      fontStyle: fontStyle.isEmpty ? null : fontStyle,
+      contextId: contextId,
+      baseHref: baseHref.isEmpty ? null : baseHref,
+    );
+  } catch (e, stack) {
+    bridgeLogger.severe('[font-face] register error: $e\n$stack');
+  } finally {
+    // Free native strings allocated on C++ side.
+    if (nativeFontFamily != nullptr) freeNativeString(nativeFontFamily);
+    if (nativeSrc != nullptr) freeNativeString(nativeSrc);
+    if (nativeFontWeight != nullptr) freeNativeString(nativeFontWeight);
+    if (nativeFontStyle != nullptr) freeNativeString(nativeFontStyle);
+    if (nativeBaseHref != nullptr) freeNativeString(nativeBaseHref);
+  }
+}
+
+final Pointer<NativeFunction<NativeRegisterFontFace>> _nativeRegisterFontFace = Pointer.fromFunction(_registerFontFace);
+
+typedef NativeUnregisterFontFace = Void Function(Double contextId, Int64 sheetId);
+
+void _unregisterFontFace(double contextId, int sheetId) {
+  try {
+    CSSFontFace.unregisterFromSheet(sheetId);
+  } catch (e, stack) {
+    bridgeLogger.severe('[font-face] unregister error: $e\n$stack');
+  }
+}
+
+final Pointer<NativeFunction<NativeUnregisterFontFace>> _nativeUnregisterFontFace =
+    Pointer.fromFunction(_unregisterFontFace);
+
+List<int> makeDartMethodsData() {
+  return _dartNativeMethods;
+}
+
+// ===== Keyframes registration (Bridge -> Dart) =====
+typedef NativeRegisterKeyframes = Void Function(
+  Double contextId,
+  Int64 sheetId,
+  Pointer<NativeString> name,
+  Pointer<NativeString> cssText,
+  Int32 isPrefixed,
+);
+
+void _registerKeyframes(
+  double contextId,
+  int sheetId,
+  Pointer<NativeString> nativeName,
+  Pointer<NativeString> nativeCssText,
+  int isPrefixed,
+) {
+  try {
+    final String name = nativeStringToString(nativeName);
+    final String cssText = nativeStringToString(nativeCssText);
+
+    CSSKeyframesBridge.registerFromBridge(
+      contextId: contextId,
+      sheetId: sheetId,
+      name: name,
+      cssText: cssText,
+      isPrefixed: isPrefixed == 1,
+    );
+  } catch (e, stack) {
+    bridgeLogger.severe('[keyframes] register error: $e\n$stack');
+  } finally {
+    if (nativeName != nullptr) freeNativeString(nativeName);
+    if (nativeCssText != nullptr) freeNativeString(nativeCssText);
+  }
+}
+
+final Pointer<NativeFunction<NativeRegisterKeyframes>> _nativeRegisterKeyframes =
+    Pointer.fromFunction(_registerKeyframes);
+
+typedef NativeUnregisterKeyframes = Void Function(Double contextId, Int64 sheetId);
+
+void _unregisterKeyframes(double contextId, int sheetId) {
+  try {
+    CSSKeyframesBridge.unregisterFromSheet(contextId: contextId, sheetId: sheetId);
+  } catch (e, stack) {
+    bridgeLogger.severe('[keyframes] unregister error: $e\n$stack');
+  } finally {}
+}
+
+final Pointer<NativeFunction<NativeUnregisterKeyframes>> _nativeUnregisterKeyframes =
+    Pointer.fromFunction(_unregisterKeyframes);

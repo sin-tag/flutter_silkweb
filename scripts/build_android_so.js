@@ -1,0 +1,24 @@
+const { paths } = require('./tasks');
+const { series, task } = require('gulp');
+const chalk = require('chalk');
+const { execSync } = require('child_process');
+const os = require('os');
+const path = require('path');
+const { copyFileSync } = require('fs');
+
+
+const buildTasks = [
+  'generate-bindings-code',
+  'build-android-webf-lib'
+];
+
+// Run tasks
+series(
+  buildTasks
+)((err) => {
+  if (err) {
+    console.log(err);
+  } else {
+    console.log(chalk.green('Success.'));
+  }
+});

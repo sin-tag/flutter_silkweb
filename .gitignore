@@ -1,0 +1,88 @@
+.vscode
+.history
+*.log
+*.apk
+*.ap_
+*.aab
+*.dex
+*.class
+.gradle/
+local.properties
+
+# IntelliJ
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/gradle.xml
+.idea/assetWizardSettings.xml
+.idea/dictionaries
+.idea/libraries
+.idea/caches
+.idea
+
+# External native build folder generated in Android Studio 2.2 and later
+.externalNativeBuild
+
+# OS-specific files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# cquery
+compile_commands.json
+
+# Gradle files
+.gradle/
+build/
+
+# Android Studio
+/*/build/
+/*/local.properties
+/*/out
+/*/*/build
+/*/*/production
+*.ipr
+*~
+*.swp
+
+# NDK
+obj/
+yarn.lock
+node_modules
+
+# cmake
+cmake-build-debug
+cmake-build-release
+cmake-build-macos
+
+# Node.js
+
+Podfile.lock
+.cxx
+
+temp
+coverage
+pubspec.lock
+.fvm
+
+**/.claude/settings.local.json
+**/.preview-bundles
+**/.tmp-chrome-profile/
+
+**/.dartServer/
+**/.dart-tool/
+
+# WebF: debug symbols are large (~250MB per release × 47 versions = 11GB)
+# These should live in GitHub Releases / S3, not in the repo
+debug-symbols/
+
+# WebF: integration test runtime artifacts
+integration_tests/snapshots/*.current.png
+integration_tests/snapshots/*.diff.png
+
+# WebF: build outputs
+bridge/build/
+

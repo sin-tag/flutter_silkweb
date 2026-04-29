@@ -1,0 +1,204 @@
+/*
+ * Copyright (C) 2019-2022 The Kraken authors. All rights reserved.
+ * Copyright (C) 2022-present The WebF authors. All rights reserved.
+ */
+
+#include "core/dom/legacy/bounding_client_rect.h"
+#include "gtest/gtest.h"
+#include "webf_test_env.h"
+using namespace webf;
+
+TEST(Element, setAttribute) {
+  bool static errorCalled = false;
+  bool static logCalled = false;
+  webf::WebFPage::consoleMessageHandler = [](void* ctx, const std::string& message, int logLevel) {
+    logCalled = true;
+    EXPECT_STREQ(message.c_str(), "1234");
+  };
+  auto env = TEST_init([](double contextId, const char* errmsg) {
+    WEBF_LOG(VERBOSE) << errmsg;
+    errorCalled = true;
+  });
+  auto context = env->page()->executingContext();
+  const char* code =
+      "let div = document.createElement('div');"
+      "div.setAttribute('hello', 1234);"
+      "document.body.appendChild(div);"
+      "console.log(div.getAttribute('hello'))";
+  env->page()->evaluateScript(code, strlen(code), "vm://", 0);
+  EXPECT_EQ(errorCalled, false);
+  EXPECT_EQ(logCalled, true);
+}
+
+TEST(Element, getAttribute) {
+  bool static errorCalled = false;
+  bool static logCalled = false;
+  webf::WebFPage::consoleMessageHandler = [](void* ctx, const std::string& message, int logLevel) {
+    logCalled = true;
+    EXPECT_STREQ(message.c_str(), "helloworld");
+  };
+  auto env = TEST_init([](double contextId, const char* errmsg) {
+    WEBF_LOG(VERBOSE) << errmsg;
+    errorCalled = true;
+  });
+  auto context = env->page()->executingContext();
+  const char* code =
+      "let div = document.createElement('div');"
+      "let string = 'helloworld';"
+      "let string2 = 'helloworld';"
+      "div.setAttribute('hello', '456');"
+      "div.setAttribute('hello', string);"
+      "let otherDiv = div.cloneNode(true);"
+      "otherDiv.setAttribute('hello', string2);"
+      "document.body.appendChild(div);"
+      "console.log(div.getAttribute('hello'));"
+      "console.log(otherDiv.getAttribute('hello'));";
+  env->page()->evaluateScript(code, strlen(code), "vm://", 0);
+  EXPECT_EQ(errorCalled, false);
+  EXPECT_EQ(logCalled, true);
+}
+
+TEST(Element, setAttributeWithHTML) {
+  bool static errorCalled = false;
+  bool static logCalled = false;
+  webf::WebFPage::consoleMessageHandler = [](void* ctx, const std::string& message, int logLevel) {
+    logCalled = true;
+    EXPECT_STREQ(message.c_str(), "100%");
+  };
+  auto env = TEST_init([](double contextId, const char* errmsg) {
+    WEBF_LOG(VERBOSE) << errmsg;
+    errorCalled = true;
+  });
+  auto context = env->page()->executingContext();
+  const char* code =
+      "let div = document.createElement('div');"
+      "div.innerHTML = '<img src=\"https://miniapp-nikestore-demo.oss-cn-beijing.aliyuncs.com/white_shoes_v1.png\" "
+      "style=\"width:100%;height:auto;\">';"
+      "console.log(div.firstChild.style.width);";
+  env->page()->evaluateScript(code, strlen(code), "vm://", 0);
+  EXPECT_EQ(errorCalled, false);
+}
+
+TEST(Element, outerHTML) {
+  bool static errorCalled = false;
+  bool static logCalled = false;
+  webf::WebFPage::consoleMessageHandler = [](void* ctx, const std::string& message, int logLevel) {
+    logCalled = true;
+    // Note: The order of attributes is not guaranteed due to unordered_map implementation
+    // Both "style" before "attr-key" and vice versa are valid outputs
+    // Also, the style serializer adds spaces after semicolons
+    EXPECT_STREQ(message.c_str(),
+                 "<div style=\"height: 100px;width: 100px;\" attr-key=\"attr-value\"></div>  <div "
+                 "style=\"height: 100px;width: 100px;\" attr-key=\"attr-value\"></div>");
+  };
+  auto env = TEST_init([](double contextId, const char* errmsg) {
+    WEBF_LOG(VERBOSE) << errmsg;
+    errorCalled = true;
+  });
+  auto context = env->page()->executingContext();
+  std::string code = R"(
+const div = document.createElement('div');
+div.style.width = '100px';
+div.style.height = '100px';
+div.setAttribute('attr-key', 'attr-value');
+
+document.body.appendChild(div);
+console.log(div.outerHTML, div.innerHTML, document.body.innerHTML);
+)";
+  env->page()->evaluateScript(code.c_str(), code.size(), "vm://", 0);
+  EXPECT_EQ(errorCalled, false);
+}
+
+TEST(Element, preserveWhitespaceInButtonContent) {
+  bool static errorCalled = false;
+  bool static logCalled = false;
+  webf::WebFPage::consoleMessageHandler = [](void* ctx, const std::string& message, int logLevel) {
+    logCalled = true;
+    EXPECT_STREQ(message.c_str(), "true true true true true true");
+  };
+
+  auto env = TEST_init([](double contextId, const char* errmsg) {
+    WEBF_LOG(VERBOSE) << errmsg;
+    errorCalled = true;
+  });
+
+  std::string code = R"(
+    // Template fragment parsing should preserve whitespace text inside <button>
+    const t = document.createElement('template');
+    t.innerHTML = '<button> </button>';
+    const b1 = t.content.firstChild;
+    const r1 = !!b1 && b1.childNodes.length === 1 && b1.firstChild.nodeType === 3 && b1.firstChild.nodeValue === ' ';
+
+    // Element innerHTML parsing should also preserve whitespace inside <button>
+    const d = document.createElement('div');
+    d.innerHTML = '<button> </button>';
+    const b2 = d.firstChild;
+    const r2 = !!b2 && b2.childNodes.length === 1 && b2.firstChild.nodeType === 3 && b2.firstChild.nodeValue === ' ';
+
+    console.log(b1.childNodes.length === 1, b1.firstChild.nodeType === 3, b1.firstChild.nodeValue === ' ',
+                b2.childNodes.length === 1, b2.firstChild.nodeType === 3, b2.firstChild.nodeValue === ' ');
+  )";
+
+  env->page()->evaluateScript(code.c_str(), code.size(), "vm://", 0);
+
+  EXPECT_EQ(errorCalled, false);
+  EXPECT_EQ(logCalled, true);
+}
+
+// TEST(Element, style) {
+//  bool static errorCalled = false;
+//  bool static logCalled = false;
+//  webf::WebFPage::consoleMessageHandler = [](void* ctx, const std::string& message, int logLevel) {
+//    logCalled = true;
+//    EXPECT_STREQ(message.c_str(), "true false");
+//  };
+//  auto env = TEST_init([](double contextId, const char* errmsg) {
+//    WEBF_LOG(VERBOSE) << errmsg;
+//    errorCalled = true;
+//  });
+//  const char* code = "console.log('borderTop' in document.body.style, 'borderXXX' in document.body.style)";
+//  env->page()->evaluateScript(code, strlen(code), "vm://", 0);
+//  EXPECT_EQ(errorCalled, false);
+//}
+
+TEST(Element, instanceofNode) {
+  bool static errorCalled = false;
+  bool static logCalled = false;
+  webf::WebFPage::consoleMessageHandler = [](void* ctx, const std::string& message, int logLevel) {
+    logCalled = true;
+    EXPECT_STREQ(message.c_str(), "true");
+  };
+  auto env = TEST_init([](double contextId, const char* errmsg) {
+    WEBF_LOG(VERBOSE) << errmsg;
+    errorCalled = true;
+  });
+  auto context = env->page()->executingContext();
+  const char* code =
+      "let div = document.createElement('div');"
+      "console.log(div instanceof Node)";
+  env->page()->evaluateScript(code, strlen(code), "vm://", 0);
+
+  EXPECT_EQ(errorCalled, false);
+  EXPECT_EQ(logCalled, true);
+}
+
+TEST(Element, instanceofEventTarget) {
+  bool static errorCalled = false;
+  bool static logCalled = false;
+  webf::WebFPage::consoleMessageHandler = [](void* ctx, const std::string& message, int logLevel) {
+    logCalled = true;
+    EXPECT_STREQ(message.c_str(), "true");
+  };
+  auto env = TEST_init([](double contextId, const char* errmsg) {
+    WEBF_LOG(VERBOSE) << errmsg;
+    errorCalled = true;
+  });
+  auto context = env->page()->executingContext();
+  const char* code =
+      "let div = document.createElement('div');"
+      "console.log(div instanceof EventTarget)";
+  env->page()->evaluateScript(code, strlen(code), "vm://", 0);
+
+  EXPECT_EQ(errorCalled, false);
+  EXPECT_EQ(logCalled, true);
+}

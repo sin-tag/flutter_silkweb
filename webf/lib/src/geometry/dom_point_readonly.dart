@@ -1,0 +1,91 @@
+/*
+ * Copyright (C) 2024-present The OpenWebF Company. All rights reserved.
+ * Licensed under GNU GPL with Enterprise exception.
+ */
+/*
+ * Copyright (C) 2022-2024 The WebF authors. All rights reserved.
+ */
+
+import 'package:flutter/cupertino.dart';
+import 'package:vector_math/vector_math_64.dart';
+import 'package:flutter_silkweb/bridge.dart';
+import 'package:flutter_silkweb/foundation.dart';
+import 'package:flutter_silkweb/geometry.dart';
+import 'package:flutter_silkweb/src/css/matrix.dart';
+import 'package:flutter_silkweb/src/geometry/dom_point.dart';
+
+class DOMPointReadOnly extends DynamicBindingObject with StaticDefinedBindingObject {
+  final List<double> _data = [0, 0, 0, 1];
+
+  DOMPointReadOnly(BindingContext super.context, List<dynamic> domPointInit) {
+    for (int i = 0; i < domPointInit.length; i++) {
+      if (domPointInit[i].runtimeType == double) {
+        _data[i] = domPointInit[i];
+      }
+    }
+  }
+
+  DOMPointReadOnly.fromPoint(BindingContext super.context, DOMPoint? point) {
+    if (point != null) {
+      _data[0] = point.x;
+      _data[1] = point.y;
+      _data[2] = point.z;
+      _data[3] = point.w;
+    }
+  }
+
+  double get x => _data[0];
+  double get y => _data[1];
+  double get z => _data[2];
+  double get w => _data[3];
+
+  @override
+  void initializeDynamicMethods(Map<String, BindingObjectMethod> methods) {
+    super.initializeDynamicMethods(methods);
+    methods['matrixTransform'] = BindingObjectMethodSync(call: (args) {
+      BindingObject domMatrix = args[0];
+      if (domMatrix is DOMMatrix) {
+        return matrixTransform(domMatrix);
+      }
+    });
+  }
+
+  static final StaticDefinedBindingPropertyMap _domPointReadonlyProperties = {
+    'x': StaticDefinedBindingProperty(
+        getter: (point) => castToType<DOMPointReadOnly>(point)._data[0],
+        setter: (point, value) => castToType<DOMPointReadOnly>(point)._data[0] = castToType<num>(value).toDouble()),
+    'y': StaticDefinedBindingProperty(
+        getter: (point) => castToType<DOMPointReadOnly>(point)._data[1],
+        setter: (point, value) => castToType<DOMPointReadOnly>(point)._data[1] = castToType<num>(value).toDouble()),
+    'z': StaticDefinedBindingProperty(
+        getter: (point) => castToType<DOMPointReadOnly>(point)._data[2],
+        setter: (point, value) => castToType<DOMPointReadOnly>(point)._data[2] = castToType<num>(value).toDouble()),
+    'w': StaticDefinedBindingProperty(
+        getter: (point) => castToType<DOMPointReadOnly>(point)._data[3],
+        setter: (point, value) => castToType<DOMPointReadOnly>(point)._data[3] = castToType<num>(value).toDouble()),
+  };
+
+  @override
+  List<StaticDefinedBindingPropertyMap> get properties => [...super.properties, _domPointReadonlyProperties];
+
+  DOMPoint matrixTransform(DOMMatrix domMatrix) {
+    Matrix4 matrix = domMatrix.matrix;
+    double x = _data[0], y = _data[1], z = _data[2], w = _data[3];
+    if (DOMMatrixReadOnly.isIdentityOrTranslation(matrix)) {
+      x += matrix[12];
+      y += matrix[13];
+      z += matrix[14];
+    } else {
+      // Multiply a homogeneous point by a matrix and return the transformed point
+      // like method v4MulPointByMatrix(v,m) in WebKit TransformationMatrix
+      List input = [x, y, z, w];
+      x = dot(input, matrix.row0);
+      y = dot(input, matrix.row1);
+      z = dot(input, matrix.row2);
+      w = dot(input, matrix.row3);
+    }
+
+    List<dynamic> list = [x, y, z, w];
+    return DOMPoint(BindingContext(ownerView, ownerView.contextId, allocateNewBindingObject()), list);
+  }
+}

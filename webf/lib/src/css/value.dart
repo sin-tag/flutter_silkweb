@@ -1,0 +1,139 @@
+/*
+ * Copyright (C) 2024-present The OpenWebF Company. All rights reserved.
+ * Licensed under GNU GPL with Enterprise exception.
+ */
+/*
+ * Copyright (C) 2019-2022 The Kraken authors. All rights reserved.
+ * Copyright (C) 2022-2024 The WebF authors. All rights reserved.
+ */
+import 'package:flutter_silkweb/css.dart';
+
+// https://github.com/WebKit/webkit/blob/master/Source/WebCore/css/CSSProperties.json
+final Map cssInitialValues = {
+  // Backgrounds
+  BACKGROUND_COLOR: TRANSPARENT,
+  BACKGROUND_SIZE: AUTO,
+  BACKGROUND_POSITION: '0% 0%',
+  BACKGROUND_POSITION_X: '0%',
+  BACKGROUND_POSITION_Y: '0%',
+  BACKGROUND_REPEAT: REPEAT,
+  BACKGROUND_ATTACHMENT: SCROLL,
+  BACKGROUND_CLIP: 'border-box',
+  BACKGROUND_ORIGIN: 'padding-box',
+  BACKGROUND_IMAGE: NONE,
+  // Borders
+
+  BORDER_BOTTOM_COLOR: CURRENT_COLOR,
+  BORDER_LEFT_COLOR: CURRENT_COLOR,
+  BORDER_RIGHT_COLOR: CURRENT_COLOR,
+  BORDER_TOP_COLOR: CURRENT_COLOR,
+  BORDER_BOTTOM_LEFT_RADIUS: ZERO,
+  BORDER_BOTTOM_RIGHT_RADIUS: ZERO,
+  BORDER_TOP_LEFT_RADIUS: ZERO,
+  BORDER_TOP_RIGHT_RADIUS: ZERO,
+  BORDER_START_START_RADIUS: ZERO,
+  BORDER_START_END_RADIUS: ZERO,
+  BORDER_END_START_RADIUS: ZERO,
+  BORDER_END_END_RADIUS: ZERO,
+  BORDER_BOTTOM_WIDTH: '3px',
+  BORDER_RIGHT_WIDTH: '3px',
+  BORDER_LEFT_WIDTH: '3px',
+  BORDER_TOP_WIDTH: '3px',
+  BORDER_TOP_STYLE: NONE,
+  BORDER_RIGHT_STYLE: NONE,
+  BORDER_BOTTOM_STYLE: NONE,
+  BORDER_LEFT_STYLE: NONE,
+  BORDER_COLOR: CURRENT_COLOR,
+  // Depends on user agent.
+  COLOR: CSSColor.INITIAL_COLOR,
+  // Text
+  FONT_FAMILY: 'sans-serif',
+  FONT_SIZE: '100%',
+  FONT_WEIGHT: '400',
+  FONT_STYLE: NORMAL,
+  LINE_HEIGHT: '120%',
+  LETTER_SPACING: NORMAL,
+  TEXT_ALIGN: 'start',
+  TEXT_DECORATION_LINE: NONE,
+  TEXT_DECORATION_COLOR: CURRENT_COLOR,
+  TEXT_DECORATION_STYLE: SOLID,
+  TEXT_INDENT: ZERO,
+  TEXT_OVERFLOW: CLIP,
+  TEXT_TRANSFORM: NONE,
+  WHITE_SPACE: NORMAL,
+  WORD_BREAK: NORMAL,
+  PADDING_BOTTOM: ZERO,
+  PADDING_LEFT: ZERO,
+  PADDING_RIGHT: ZERO,
+  PADDING_TOP: ZERO,
+  MARGIN_BOTTOM: ZERO,
+  MARGIN_LEFT: ZERO,
+  MARGIN_RIGHT: ZERO,
+  MARGIN_TOP: ZERO,
+  HEIGHT: AUTO,
+  WIDTH: AUTO,
+  MAX_HEIGHT: NONE,
+  MAX_WIDTH: NONE,
+  MIN_HEIGHT: AUTO,
+  MIN_WIDTH: AUTO,
+  OPACITY: '1.0',
+  LEFT: AUTO,
+  // Positioning
+  POSITION: STATIC,
+  BOTTOM: AUTO,
+  RIGHT: AUTO,
+  TOP: AUTO,
+  DIRECTION: 'ltr',
+  // Layout / display
+  DISPLAY: INLINE,
+  OVERFLOW_X: VISIBLE,
+  OVERFLOW_Y: VISIBLE,
+  CONTENT_VISIBILITY: VISIBLE,
+  // Flexbox
+  FLEX_DIRECTION: ROW,
+  FLEX_WRAP: NO_WRAP,
+  JUSTIFY_CONTENT: 'flex-start',
+  ALIGN_ITEMS: STRETCH,
+  ALIGN_CONTENT: STRETCH,
+  ALIGN_SELF: AUTO,
+  FLEX_GROW: ZERO,
+  FLEX_SHRINK: '1',
+  FLEX_BASIS: AUTO,
+  ORDER: ZERO,
+  // Gaps
+  GAP: NORMAL,
+  ROW_GAP: NORMAL,
+  COLUMN_GAP: NORMAL,
+  SLIVER_DIRECTION: COLUMN,
+  TAB_SIZE: '8',
+  // Effects
+  BOX_SHADOW: NONE,
+  FILTER: NONE,
+  CARETCOLOR: CURRENT_COLOR,
+  TEXT_SHADOW: '0px 0px 0px transparent',
+  // Transforms / positioning helpers
+  TRANSFORM: 'matrix3d(${CSSMatrix.initial.storage.join(',')})',
+  TRANSFORM_ORIGIN: '50% 50% 0',
+  VERTICAL_ALIGN: ZERO,
+  VISIBILITY: VISIBLE,
+  WORD_SPACING: NORMAL,
+  Z_INDEX: AUTO,
+  OBJECT_FIT: FILL,
+  OBJECT_POSITION: '50% 50%',
+  WRITING_MODE: 'horizontal-tb',
+  // Transitions
+  TRANSITION_PROPERTY: ALL,
+  TRANSITION_DURATION: '0s',
+  TRANSITION_TIMING_FUNCTION: EASE,
+  TRANSITION_DELAY: '0s',
+  // CSS Sizing Level 4
+  ASPECT_RATIO: AUTO,
+  LINE_CLAMP: ZERO,
+};
+
+// https://drafts.css-houdini.org/css-properties-values-api/#dependency-cycles
+class CSSValue {
+  String propertyName;
+  RenderStyle renderStyle;
+  CSSValue(this.propertyName, this.renderStyle);
+}

@@ -1,0 +1,51 @@
+/*
+ * Copyright (C) 2024-present The OpenWebF Company. All rights reserved.
+ * Licensed under GNU GPL with Enterprise exception.
+ */
+/*
+ * Copyright (C) 2019-2022 The Kraken authors. All rights reserved.
+ * Copyright (C) 2022-2024 The WebF authors. All rights reserved.
+ */
+
+import 'dart:async';
+
+import 'package:flutter/services.dart';
+import 'package:flutter_silkweb/src/module/module_manager.dart';
+
+class ClipBoardModule extends WebFBaseModule {
+  @override
+  String get name => 'Clipboard';
+  ClipBoardModule(super.moduleManager);
+
+  static Future<String> readText() async {
+    ClipboardData? data = await Clipboard.getData(Clipboard.kTextPlain);
+    if (data == null) return '';
+    return data.text ?? '';
+  }
+
+  static Future<void> writeText(String text) async {
+    await Clipboard.setData(ClipboardData(text: text));
+  }
+
+  @override
+  void dispose() {}
+
+  @override
+  Future<dynamic> invoke(String method, List<dynamic> params) {
+    Completer<dynamic> completer = Completer();
+    if (method == 'readText') {
+      ClipBoardModule.readText().then((String value) {
+        completer.complete(value);
+      }).catchError((e, stack) {
+        completer.completeError(e, stack);
+      });
+    } else if (method == 'writeText') {
+      ClipBoardModule.writeText(params[0]).then((_) {
+        completer.complete();
+      }).catchError((e, stack) {
+        completer.completeError(e, stack);
+      });
+    }
+    return completer.future;
+  }
+}

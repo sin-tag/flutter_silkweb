@@ -1,0 +1,4144 @@
+## 0.24.27
+
+### Features
+
+- **DevTools/Performance**: add waterfall performance chart to the inspector panel
+  that visualizes the full rendering pipeline (CSS parse, style flush/recalc/apply,
+  layout, paint) on a shared time axis with milestone markers (FP, FCP, LCP).
+  Supports drill-down into recursive stages via a flame chart view with self-time
+  vs child-time coloring.
+- **DevTools/Performance**: instrument all 6 pipeline stages with hierarchical span
+  tracking via a zero-cost `PerformanceTracker` singleton (single boolean check when
+  disabled). Auto-records during page load with stage distinction for
+  preload/prerender vs display phases.
+
+### Performance Improvements
+
+- **DevTools/Performance**: cache waterfall data model and filtered item lists to
+  avoid rebuilding on every frame. Add proper `shouldRepaint` checks to overview
+  and flame chart painters to skip redundant repaints during scrolling.
+
+## 0.24.26
+
+### Bug Fixes
+
+- **Accessibility/Semantics**: avoid Flutter semantics assertions when transparent
+  proxy wrappers are dirtied mid-frame by tracking runtime layout dirtiness and
+  skipping dirty proxy children during semantics traversal instead of relying on
+  debug-only layout checks.
+- **Rendering/Widget/Inline**: restore detached portal widget width fallback so
+  portal-mounted widget subtrees use their active child constraints instead of
+  unrelated DOM ancestors, and allow block/flex atomic placeholders in widget-hosted
+  inline formatting contexts without tripping inline-item assertions.
+
+## 0.24.25+2
+
+### Bug Fixes
+
+- **Rendering/Widget/Flex**: preserve hosted Flutter widget text painting after nested updates
+  in flex layouts by preventing percentage-width widget children from collapsing to a transient
+  zero-width layout during relayout.
+
+## 0.24.25+1
+
+### Bug Fixes
+
+- **Rendering/Layout**: avoid relayout-boundary assertions when mirrored WebF box-model
+  children dirty layout by routing the special relayout-parent path through Flutter’s
+  parent-layout propagation instead of double-marking the boundary.
+
+## 0.24.25
+
+### Bug Fixes
+
+- **Rendering/Widget/CSS**: remove an overly broad widget width fallback that could
+  clamp detached or hybrid-native widget subtrees to unrelated DOM ancestor widths,
+  while preserving the intended popup/portal constraint behavior.
+- **Android/Diagnostics**: handle large Android render tree dumps more defensively to
+  avoid failures while collecting or reporting oversized render tree output.
+
+## 0.24.24
+
+### Performance Improvements
+
+- **Rendering/Flexbox/Layout**: further reduce profiled layout cost in flex-heavy and wrapped
+  layouts by trimming redundant fast-path relayouts, skipping futile early run-metric passes,
+  tightening mixed/wrapped measurement reuse, and cutting repeated constraint, inherited-text,
+  and CSS length-resolution work across repeated passes.
+
+### Bug Fixes
+
+- **Rendering/Flexbox**: restore stable flex layout behavior after recent fast-path
+  optimizations by validating cached child layouts consistently in release builds, correcting
+  reuse for widget-backed and percentage-sized children, and preventing phantom trailing scroll
+  range from transformed overflow calculations.
+- **Rendering/Widget**: narrow portal/modal popup width fallback so detached widget subtrees
+  prefer their active child constraints instead of unrelated ancestor widths, avoiding overly
+  wide overlays.
+
+## 0.24.23
+
+### Performance Improvements
+
+- **Rendering/Flex/Inline**: further reduce relayout cost in text-heavy flex containers by
+  improving flex run-metric fast paths, trimming repeated paragraph/layout recomputation, and
+  reducing repeated style/baseline lookup work during inline layout.
+
+### Bug Fixes
+
+- **Rendering/Text/CSS**: fix stale nested text rendering after descendant class, style, and CSS
+  variable updates by invalidating owned inline formatting contexts and direct text layout more
+  precisely, including `currentColor`-driven descendants.
+
+## 0.24.22
+
+### Performance Improvements
+
+- **Rendering/Flex/Inline**: reduce flex-driven inline layout hot spots by reusing safe intrinsic
+  measurements, caching attached render-style lookups and inherited text properties, memoizing
+  paragraph/baseline work across repeated flow relayouts, and trimming repeated CSS length
+  resolution in text-heavy flex layouts.
+
+### Bug Fixes
+
+- **Rendering/Flexbox/Grid**: invalidate parent flex/grid layout when child `flex-*`,
+  `align-self`, or `grid-row`/`grid-column` properties change; bubble relayout through nested
+  flow/flex relayout boundaries; and restore correct root `<html>` sizing for dynamic
+  `documentElement` height updates.
+- **Rendering/Text**: clear inherited text caches through anonymous render-tree descendants so
+  nested text, multilingual text effects, and `text-align`-driven layouts update correctly after
+  style changes.
+
+## 0.24.21
+
+### Performance Improvements
+
+- **Rendering/Text**: reduce profiled inline-layout and paint hot spots by caching inherited
+  `direction`/`text-align` resolution and DOM parent lookups, reusing flow dry-baseline results,
+  and memoizing paragraph/decoration metrics across repeated inline formatting passes.
+- **Rendering/Opacity**: avoid redundant child sorting and compositing-bit invalidation during
+  opacity animations unless the value crosses stacking/compositing boundaries.
+
+### Bug Fixes
+
+- **Bridge/Initialization**: lazily initialize the native string cache across isolate, wrapper,
+  atomic-string, and event access paths to prevent worker-thread page startup crashes in profiled
+  and integration-test environments.
+
+## 0.24.20
+
+### Performance Improvements
+
+- **Rendering/Flexbox**: reduce flex layout cost for large or text-heavy containers by caching and
+  reusing safe intrinsic measurements for anonymous, wrapped, and text-heavy flow children; skip
+  speculative metrics for simple row layouts; and prune redundant subtree intrinsic-measurement
+  checks during relayout.
+
+### Bug Fixes
+
+- **Rendering/Flexbox**: use aligned child offsets when computing flex scrollable overflow,
+  fixing extra trailing scroll range in overflowing column layouts with centered/aligned children
+  and adding regression coverage for chat-style `flex-grow` layouts.
+- **Android/Build**: restore Android test-bridge compilation and native library loading by wiring
+  `ENABLE_TEST` through the Android build, including test bridge sources for non-release builds,
+  and removing redundant `quickjs` loading from `WebFPlugin`.
+
+## 0.24.19
+
+### Performance Improvements
+
+- **CSS/Dart Engine**: significantly reduce pure-Dart style application overhead for large DOM
+  mounts by pruning redundant subtree restyles, optimizing selector and cascade evaluation,
+  speeding pseudo-element styling, reducing declaration merge/flush work, and caching parse-time
+  CSS values before resolve-time application.
+- **Bridge/DOM**: reduce UI command package overflow during large DOM mounts.
+
+### Bug Fixes
+
+- **CSS/Backgrounds**: fix mixed `background-attachment: fixed, local` multi-layer background
+  painting, preserve authored layered background values, and warm background images early enough
+  for first-paint snapshots.
+- **CSS/CSSOM**: normalize kebab-case CSSOM property names and ensure pending inline style updates
+  flush even when recomputed style matches the queued value, fixing resolved-value regressions.
+- **Dependencies**: widen `archive` and `intl` version constraints for Flutter 3.27+ compatibility.
+
+## 0.24.18
+
+### Major Features
+
+- **Use Cases/CSS**: re-enable the selectors showcase in the example app and expand it with
+  direct-target interactive pseudo-class demos for `:hover`, `:active`, `:focus-visible`, and
+  `:focus-within`.
+
+### Bug Fixes
+
+- **CSS/Selectors**: scope document-dispatched interactive pseudo-class state to the stable leaf
+  target only. This prevents ancestor/descendant false positives for `:hover` and `:active`, ignores
+  targets without direct interactive pseudo selectors, preserves the deepest target during
+  same-event bubbling, and adds regression coverage.
+
+## 0.24.17
+
+### Bug Fixes
+
+- **Rendering/Widget**: revert the `0.24.16` auto-height shrink-wrap change for widget-hosted WebF content inside bounded flex and tooltip layouts, restoring the previous `RenderWidget` height-constraint behavior.
+
+## 0.24.16
+
+### Major Features
+
+- **CSS/Selectors**: add Dart-engine support for interactive and form pseudo-classes, including `:hover`, `:active`, `:focus`, `:focus-visible`, `:focus-within`, `:enabled`, `:disabled`, `:checked`, `:required`, `:optional`, `:placeholder-shown`, `:valid`, and `:invalid`, with new unit and integration coverage.
+- **Form Controls**: add Dart-side `<select>` support with `value`/`selectedIndex`, focus and blur handling, `required`/`multiple`/`disabled` state, option and `optgroup` handling, and native menu rendering; improve `<label>` activation and default button/select UA styling.
+
+### Bug Fixes
+
+- **Rendering/Widget**: preserve auto-height shrink-wrap for widget-hosted WebF content inside bounded flex and tooltip layouts; add regression coverage.
+- **Rendering/Inline**: honor `border-radius` when painting inline backgrounds for inline spans.
+- **Form Controls**: improve checkbox and radio checked-state synchronization across Dart/Blink paths, fix checkbox baseline alignment in inline formatting contexts, restore placeholder color behavior, and tighten default form-control typography and disabled-state styling.
+- **DOM/Focus**: make generic elements focusable via `tabindex`, and fix focus/blur state propagation for selector matching and related events.
+- **Selectors/DOM**: improve attribute selector and `querySelector` fallback matching for case-insensitive HTML attributes and live form-control values.
+- **Bridge/NativeValue**: accept integer tags by coercing them to doubles during native value conversion.
+
+## 0.24.15
+
+### Bug Fixes
+
+- **CSS/Logical Properties**: defer `inset-inline-start`/`inset-inline-end` mapping until `direction` resolves; support dynamic direction changes and percentage resolution; add regression coverage.
+- **Rendering/Inline/RTL**: fix RTL absolutely positioned shrink-to-fit inline text visibility in inline formatting context; add integration snapshot and tests.
+
+## 0.24.14
+
+### Bug Fixes
+
+- **RTL/Overflow**: correct initial paint offset for overflow scrollers in RTL; add regression tests.
+- **Rendering/Inline**: preserve inline span text through `WebFListView` wrapper stacks; add integration coverage.
+- **Rendering/Flexbox**: fix RTL cross-axis padding for column flex containers; add regression tests and snapshots.
+
+## 0.24.13+1
+
+### Major Features
+
+- Add flutter 3.41.x support.
+
+## 0.24.13
+
+### Major Features
+
+- **Networking**: add `EventSource` (Server-Sent Events) API support, including named events and
+  integration coverage and a use-cases demo page.
+
+### Performance Improvements
+
+- **Bridge/DOM**: avoid style invalidation work when attributes are re-applied without value
+  changes (common in React).
+
+### Bug Fixes
+
+- **Blink/Rendering**: defer first paint for newly inserted elements until Blink style-sync starts
+  to prevent 1-frame unstyled flashes (FOUC).
+- **Scrolling**: use a custom overflow `ScrollController` to avoid layout-time ballistic
+  simulations that can trigger asserts with some physics.
+- **Routing**: use `HybridHistoryDelegate.state()` for `RouteAware` callbacks in `WebF` and
+  `WebFRouterView` (#855).
+- **Routing/React**: bump `@openwebf/react-router` to `1.0.1` and align `RouterLink` with
+  `@openwebf/react-core-ui` component wiring.
+- **Flexbox**: include gap and border-box extents when computing flex scrollable area; add
+  regression snapshots.
+- **CSS/Parsing**: accept `calc(...)` in `flex` shorthand basis parsing; add integration coverage.
+- **DOM/Blink**: bypass stale CSS batch dirties when Blink is enabled to avoid redundant style
+  work.
+
+## 0.24.12
+
+### Major Features
+
+- **Routing**: add browser-history routing support for `@openwebf/react-router` and
+  `@openwebf/vue-router`, improving web-style navigation and `RouterLink` behavior (#850).
+- **Native UIs/Icons**: expand `webf_lucide_icons` support and add React/Vue showcases (#850).
+- **Tooling/Codegen**: enhance Vue generator output (runtime enum exports, updated templates) and
+  add generator tests for Dart method interface bindings (#850).
+
+### Performance Improvements
+
+- **Widget Elements**: cache stable default attributes on the native side to make `getAttribute()`
+  non-blocking for common widget defaults (#850).
+
+### Bug Fixes
+
+- **CSS/Selectors**: fix `:has()` selector state flags for `:checked` and `:disabled` matching in
+  the Blink backend (#849).
+- **CSS/Values**: prevent `calc(% - px)` from collapsing during shrink-to-fit sizing (flex items);
+  add regression snapshots (#851).
+- **Scrolling/Focus**: prevent focused inputs from scrolling the page to the top; add a
+  `showOnScreen` regression test (#851).
+- **Overflow**: fix height collapse for `overflow:hidden` children inside `WebFListView` (#850).
+- **Rendering/Grid**: re-resolve `fr` row tracks after intrinsic sizing to match expected track
+  sizing behavior (#850).
+- **Bridge/UICommand**: prevent re-entrant `flushUICommand` calls from causing missing DOM
+  elements (#850).
+- **Gestures**: guard against null `attachedRenderer` in click handling (#850).
+- **Lifecycle**: remove asserts that could fire on disposed nodes during teardown (#850).
+- **Rendering/Flexbox**: correct `min-size:auto` behavior for replaced elements (e.g. images) in
+  flex layouts (#853).
+
+## 0.24.11
+
+### Major Features
+
+- **CSS/Selectors**: add Selectors Level 4 `:has()` support to the Blink backend (Tailwind CSS
+  compatibility), including invalidation coverage and snapshots (#840).
+
+### Bug Fixes
+
+- **Rendering/Widget**: avoid clamping portal/modal popup widget width to DOM parent constraints
+  (#841).
+- **Rendering/Text**: establish a local inline formatting context for inline spans hosted under
+  `RenderWidget`, fixing flexbox/inline layout edge cases (#842).
+- **Flexbox**: don’t stretch auto-height flex items when cross-axis constraints are bounded,
+  improving `WebFListView` sizing inside flex containers (#843).
+- **RTL**: isolate per-subtree `direction` overrides and support dynamic `documentElement.dir`
+  updates (including logical margin remapping) (#844).
+- **Bridge**: serialize Dart enums across the native bridge for stable `NativeValue` round-trips
+  (#840).
+- **Form Controls**: add `HTMLOptGroupElement` support and resolve related bridge build issues
+  (#840).
+- **Scrolling**: detach overflow scroll listeners on dispose to prevent stale callbacks/leaks.
+
+## 0.24.10
+
+### Major Features
+
+- **CSSOM**: expose Dart CSSOM via `document.styleSheets`, including `CSSStyleSheet`/`CSSRule`
+  bindings (insert/delete/replace) that keep rule sets in sync and trigger style updates when
+  Blink CSS is disabled (#838).
+- **CSS/Cascade Layers**: implement cascade layer parsing and ordering for Dart CSS (inline +
+  `@media` + `@layer` + CSSOM), improving specificity tracking, rule collection, and selector
+  matching (#838).
+- **CSS/Selectors**: support selector-list parsing/matching and route `Element.matches()` /
+  `Element.closest()` through selector-list utilities when the Blink backend is enabled (#836,
+  #838).
+- **Native UIs**: add `webf_shadcn_ui` components and `webf_lucide_icons` icon library with
+  generated bindings and showcases (#834).
+- **Tooling/Codegen**: fix Dart binding method generation and add Jest coverage for generator
+  output (Dart interface/method bindings).
+
+### Performance Improvements
+
+- **Bridge/CSS**: avoid Dart/FFI round-trips during attribute selector matching (read attributes
+  from native DOM storage), add nth-index caching, and improve `SelectorFilter` prefiltering for
+  large DOM trees/long lists (#836).
+
+### Bug Fixes
+
+- **CSS/Selectors**: fix `:nth-*` pseudo matching for detached elements in the Dart selector
+  engine.
+- **DOM/Query**: use Blink traversal for `getElementsByClassName()` / `getElementsByTagName()`
+  when Blink backend is enabled (including `'*'` wildcard and ASCII case-insensitive tag
+  matching) (#836).
+- **CSS/Fonts**: relayout after `@font-face` registration to trigger font loading and repaint
+  updates (#838).
+- **CSS/Gap**: ignore invalid `gap` assignments (#838).
+- **Flexbox**: normalize `WebkitAlignItems` to `align-items` for correct flex relayout (#838).
+- **Transitions**: preserve CSS transitions during Blink style synchronization (#838).
+- **Transforms**: fix percentage translate reset when rebuilding DOM trees (#838).
+- **Rendering**: detach render object mapping in `didDetachRenderer` to avoid stale renderer
+  references (#838).
+
+## 0.24.9
+
+### Major Features
+
+- **Blink/CSS**: add a first-paint style synchronization barrier so the first visible frame ships
+  with both DOM and computed styles (including hybrid-router `RouterLink` subpage mounts) (#827).
+- **CSS/Logical Properties**: resolve logical `border-*-*-radius` (start/end) across `direction`
+  and `writing-mode` for correct RTL/vertical writing-mode rendering (#832).
+- **CSS/Selectors**: support `:enabled` / `:disabled` matching for form controls when Blink is
+  enabled; add Selectors Level 4 `:is()` / `:where()` integration coverage (#824).
+
+### Bug Fixes
+
+- **Bridge/UICommand**: improve UICommand synchronization on dedicated threads (flush pending
+  commands for element/layout-dependent reads; defer packages while the Blink first-paint barrier
+  is active) (#827).
+- **Rendering/Grid**: fix RTL positioning for CSS grid columns and `justify-self` alignment/margins
+  in RTL (#832).
+- **Rendering/Flex**: make main-axis `margin: auto` free-space distribution flow-aware (e.g. `row`
+  in `direction: rtl`) and distribute space per auto margin (#832).
+- **Form Controls**: fix boolean attribute setters for `disabled` / `checked`; correct radio and
+  checkbox checked synchronization before widget state mounts; dispatch `input` events for checkbox
+  toggles; fix `textarea.defaultValue` priority (#832).
+- **Viewport**: notify the controller when the viewport render-object size changes during layout
+  so resize listeners and native media-query caches stay in sync under widget constraint resizing.
+
+## 0.24.8+1
+
+### Bug Fixes
+
+- **DOM/Style**: flush styles after DOM/inline-style UICommand batches so layout queries (e.g.
+  `offsetLeft`/`offsetWidth`) observe up-to-date selector matching and computed styles.
+- **Viewport**: remove redundant viewport size change notifications triggered during layout.
+
+## 0.24.8
+
+### Major Features
+
+- **Bridge/CSS**: implement CSS cascade layers (`@layer`) end-to-end in the Blink/bridge pipeline;
+  add `CSSLayerBlockRule`/`CSSLayerStatementRule` bindings and integration coverage (Tailwind CSS
+  `@layer` support) (#814).
+- **DevTools**: long-press the floating panel button to copy the render object tree to clipboard (
+  #820).
+
+### Performance Improvements
+
+- **DOM/Style**: batch/coalesce style flushes triggered by `childList` mutations to avoid
+  synchronous recalcs during large inserts (e.g. infinite scrolling) (#825).
+
+### Bug Fixes
+
+- **CSS/Selectors**: recalculate nested styles after `childList` mutations so general sibling
+  selectors update correctly after DOM insertions (e.g. Tailwind `.space-y-*`) (#823, #825).
+- **Bridge/CSS**: fix cascade layer ordering to match expected precedence.
+- **Rendering/Widget**: honor percentage widths (e.g. `width: 100%`) for `RenderWidget` hosted
+  Flutter subtrees once containing block width is definite (#822).
+- **Rendering/Flex**: avoid cross-axis center shift when free space is 0 and only the tallest item
+  triggers the border-box centering tweak; add regression coverage (#819).
+- **CSS/Values**: trim parsed CSS function arguments to handle whitespace correctly.
+- **Build/iOS**: fix iOS builds after adding cascade layer bindings by adding missing generated
+  sources.
+- **Debugging**: include stack traces in `WebFController.loadingError` for easier diagnosis (#822).
+
+## 0.24.7
+
+### Performance Improvements
+
+- **Bridge/CSS**: optimize Blink style engine matching and invalidation (including media-query evaluation and resize-triggered recalc) (#806).
+- **CSS**: skip caching `var()`-dependent colors to avoid stale cache hits and reduce variable-change overhead (#812).
+
+### Bug Fixes
+
+- **CSS**: preserve author stylesheet DOM order and base URL; fix subtree style recalculation when `display:none` becomes visible (#806).
+- **Theme**: sync system color scheme changes with Blink `prefers-color-scheme` media queries and dispatch `ColorSchemeChangeEvent` reliably (#806).
+- **Router/Prerendering**: mount `initialRoute` during prerendering and emit a `prerendering` event for initial `router-link` (#811).
+- **Rendering/Widget**: avoid unbounded width constraints for widget elements with `min-width` in unbounded contexts (e.g. `Row` + `Expanded`) (#816).
+
+## 0.24.6
+
+### Bug Fixes
+
+- **Intrinsic sizing**: fix `width: min-content`/`max-content`/`fit-content` collapsing to padding/border-only sizing (especially for flex containers and inline formatting contexts) by resolving intrinsic widths during layout and forwarding intrinsic measurements through wrapper render objects (#807).
+- **Rendering/Widget**: clamp hosted Flutter widget constraints using both `RenderWidget` constraints and `WebFWidgetElementChild` wrapper constraints to avoid unbounded children and unintended viewport-sized expansion (#808).
+- **CSS**: fix render parent lookup to only skip wrapper render objects belonging to the same element, preventing incorrect ancestor/constraint resolution in complex render trees (#809).
+- **Overflow/Scrolling**: when a DOM element is mounted into multiple Flutter subtrees, mark each nearest scroll container as needing layout for overflow sizing updates (#809).
+
+## 0.24.5
+
+### Bug Fixes
+
+- **Layout**: prevent `height: auto` flex containers from expanding to the sliver viewport height inside scrolling widget elements (e.g. `flutter-sliver-listview`) (#803).
+- **iOS**: fix camera/microphone permission prompts in the example app by adding usage descriptions to `Info.plist` (#803).
+
+## 0.24.3
+
+### Major Features
+
+- **Native plugins & native UIs**
+  - Add `webf_sqflite` native plugin for SQLite database support (#793).
+  - Add `webf_bluetooth` native plugin with React/Vue showcases (#796).
+  - Add `webf_camera` and `webf_video_player` native UI plugins with React/Vue use cases (#795, #794).
+- **DevTools**: copy render object tree to clipboard for the inspector panel (#798).
+- **Tooling/Codegen**: typed module event declarations and improved React codegen typings/build output.
+- **Bridge/DOM**: add `HTMLSelectElement`/`HTMLOptionElement` support for React controlled `<select>`.
+
+### Performance Improvements
+
+- **Parsing**: replace RegExp-heavy parsing with scanners/parsers to reduce allocations and improve maintainability.
+
+### Bug Fixes
+
+- **CSS/Layout**: avoid treating bounded `maxHeight` as a definite height for `RenderWidget` children (#797).
+- **Layout**: clamp widget constraint width to the CSS containing block (#791).
+- **Rendering/Grid**: prevent overflow with `minmax(0, 1fr)` and percent-sized images; fix centered text combined with grid layout.
+- **Rendering/Flex**: avoid baseline crashes on detached children / missing parentData.
+- **Build/Release**: fix iOS build issues, package publish scripts, and Bluetooth license metadata.
+
+## 0.24.2
+
+### Major Features
+
+- **CSS Grid (Level 2)**: add `subgrid` support for `grid-template-columns` / `grid-template-rows` (track/gap inheritance, alignment, placement, named lines, and intrinsic sizing).
+
+### Bug Fixes
+
+- **CSS Grid/Subgrid**: fix implicit-column width expansion, subgrid column widths, intrinsic sizing, and row sizing/layout.
+- **Scrolling/Semantics**: fix scroll controller null cases for scrollable elements and improve overflow scroll semantics compatibility.
+
+### Compatibility
+
+- Support Flutter SDK `>=3.27.0`.
+- Replace vendored `easy_refresh` (path dependency + submodule) with published `webf_easy_refresh`.
+
+## 0.24.1
+
+### Major Features
+
+- **CSS Grid**: expanded spec coverage + fixes (out-of-flow positioning, z-index/offset behavior, percent/calc track & gap resolution, scroll support), with more WPT-based tests & snapshots (Phases 6–8).
+- **CSSOM (Blink engine)**: `CSSStyleSheet` and `CSSRuleList` support.
+- **Blink engine DOM**: `querySelector`/`querySelectorAll` fallback when `WebFController(enableBlink: true)`.
+- **JS ↔ Dart bindings**: shared binding objects and passing JS function values as parameters.
+- **CSS Positioning**: `inset` shorthand support.
+
+### Performance Improvements
+
+- **Images**: load and decode images during prerendering.
+
+### Bug Fixes
+
+- **Bridge**: avoid UAF in StyleEngine author sheet registry.
+- **Layout/Rendering**: fix duplicated-element constraints, initial-route layout errors, empty-text constraint errors, and a viewport null edge case.
+- **Typography**: fix `font-weight: inherit` to resolve to the parent’s computed weight.
+- **Tooling/Examples**: fix example build and websocket showcase; improve Vue UI generator/templates.
+
+### Compatibility
+
+- Vendor `easy_refresh` via `webf/flutter_easy_refresh` (path dependency) for WebF integration.
+
+## 0.24.0
+
+Set the minimal flutter version requirement to 3.29.x
+
+### Major Features
+
+- **Blink CSS Engine Integration** (#773, #779)
+  - **New experimental C++-based CSS engine** as the future replacement for the Dart-based CSS engine
+  - **Architecture Benefits**:
+    - CSS processing moved to JS thread (C++) instead of UI thread (Dart)
+    - Better thread separation: style computation doesn't block UI rendering
+    - Sends computed styles to Dart as inline styles for final rendering
+  - **Lower Maintenance for Future CSS Support**:
+    - Leverages Chromium's Blink CSS implementation directly
+    - New CSS features can be added by following Blink's proven approach
+    - Reduced effort to maintain standards compliance
+  - **Performance Improvements** (ongoing optimization):
+    - Faster invalidation system: conservative yet efficient style recalculation
+    - Property/value IDs and static strings reduce allocations
+    - Optimized rule matching and diff-based style updates
+  - Currently opt-in for testing: `WebFController(enableBlink: true)`
+  - Feature parity with Dart engine maintained
+
+- **CSS Grid Layout - Complete Implementation** (#775, #778)
+
+  **Grid Container Properties**
+  - `display: grid` and `display: inline-grid`
+  - `grid-template-columns`, `grid-template-rows` with `fr`, `minmax()`, `fit-content()`, `repeat()`, `auto-fill`, `auto-fit`
+  - `grid-template-areas` for named grid regions
+  - `grid-auto-rows`, `grid-auto-columns` for implicit track sizing
+  - `grid-auto-flow` with `row`, `column`, `dense` values
+  - `row-gap`, `column-gap`, `gap` (with percentage support)
+  - `align-content`, `justify-content`, `place-content`
+  - `align-items`, `justify-items`, `place-items`
+
+  **Grid Item Properties**
+  - `grid-column-start`, `grid-column-end`, `grid-column`
+  - `grid-row-start`, `grid-row-end`, `grid-row`
+  - `grid-area` for named area placement
+  - `align-self`, `justify-self`, `place-self`
+  - Support for line numbers (positive/negative), named lines, and `span` keyword
+
+  **Track Sizing Functions & Keywords**
+  - Intrinsic sizing: `min-content`, `max-content`, `fit-content()`
+  - Fractional units: `fr` with proper space distribution
+  - `minmax(min, max)` for flexible track sizing
+  - `repeat(count, tracks)` and `repeat(auto-fill/auto-fit, tracks)`
+  - Percentage, fixed lengths, and `auto` sizing
+
+  **Features**
+  - Named grid lines and implicit area line names (`<area>-start`, `<area>-end`)
+  - Auto-placement algorithm with sparse and dense packing
+  - Multi-track spanning
+  - Baseline and last-baseline alignment
+  - Safe and unsafe alignment keywords
+  - Auto-margins for grid items
+  - Writing-mode support
+  - Aspect-ratio preservation
+  - Nested grids
+  - Hit testing with `elementFromPoint()`
+  - Full `getComputedStyle()` support
+
+  **100+ integration tests based on Web Platform Tests**
+
+### Performance Improvements
+
+- **Style Calculation Optimization** (#777, #779)
+  - VSync-driven style recalculation: synchronized with display refresh rate
+
+### Bug Fixes
+
+- **Layout & Rendering**
+  - Flexbox: Fixed relayout behavior when changing alignment properties
+  - z-index: Paint negative z-index elements under background correctly
+
+- **Router & Navigation**
+  - Fixed Hybrid Router `maybePop` API behavior
+  - Prevent unexpected disposal of RouterView when mounting
+  - Use `go_router` for more robust routing in the examples
+  - Added dynamic router support in `@openwebf/react-router`
+  - Fixed viewport resizing
+
+- **Images & Assets**
+  - Fixed GIF and data URI SVG image loading
+  - Fixed Tailwind CSS gradient with empty position values
+  - Improved image codec disposal resilience
+
+### API Changes
+
+- **New APIs**
+  - `Element.scrollByIndex()`: Scroll ListView to specific index
+  - `WebFController.enableBlink`: Flag to enable Blink CSS engine (opt-in)
+
+## 0.23.13
+
+- Compatibility
+  - Set the minimal Flutter version requirement to 3.29.x.
+- Breaking
+  - Remove the built-in `FlutterForm`/`FlutterFormField` elements (and their generated bindings) and stop exporting `flutter_form.dart`.
+
+## 0.23.12
+
+- Performance
+  - Rendering: comprehensive flex layout optimizations (caching invariants and per-item flex data, reduced allocations, and new fast paths).
+  - Inline formatting: speed up paragraph layout and trailing extras shrink passes; refactor paragraph building for less work.
+  - Style/layout: optimize parent render-style reads and avoid unnecessary element key updates.
+- Fixed
+  - Android: fix build configuration issues.
+  - Tooling/tests: resolve lint issues and update integration/unit tests.
+- Chore
+  - Dependencies: bump `vector_math` to `^2.2.0`.
+
+## 0.23.11
+
+- Features
+  - CSS Grid: enable grid layout by default and expand support for track sizing and placement, including
+    `repeat()`/`minmax()`/`fit-content()`, named lines, template areas, and `grid`/`grid-template`/`place-*`
+    shorthands.
+  - DOM/Bridge: complete the `IntersectionObserver` API (including `IntersectionObserverEntry`) and add v2
+    properties for richer visibility tracking.
+  - Accessibility: improve semantics for overflow scrolling containers, add ListView a11y coverage, and support
+    `menubar`/`menuitem` roles.
+- Fixed
+  - Grid: fix auto-placement and sizing edge cases (reverse line ranges, `justify-content: space-*`, auto-fit
+    track collapse, and placement alignment).
+  - Platform/CI: fix iOS source builds and stabilize integration tests/snapshots.
+  - Accessibility/DOM: improve focusability handling and skip non-semantic container tags during traversal.
+
+## 0.23.10
+
+- Features
+  - Canvas 2D: add ImageData APIs (getImageData/putImageData), hit‑testing helpers (
+    isPointInPath/isPointInStroke), line dashes (with dash offset), shadow offsets, and global
+    compositing/alpha support to bring the 2D context
+    closer to modern browser behavior.
+  - Bridge/runtime: add ImageBitmap support and improve union type handling in the C++ bridge so
+    more web APIs and image flows can be wired through efficiently.
+- Fixed
+  - Canvas: honor Path2D line dash offset, clip CanvasPattern stroke styles correctly to the stroked
+    region, and optimize 2D context command batching for smoother rendering under heavy draw
+    workloads.
+  - Animation/prerendering: fix an issue where animations could remain incorrectly paused when pages
+    were prerendered.
+  - Filters: improve CSS filter effects and back them with additional tests for better visual
+    fidelity.
+  - Platform: fix iOS logging header configuration and clean up minor spec/test mismatches.
+- Docs & Chore
+  - Licensing: update the package metadata and docs to clearly indicate GPL‑3.0 licensing.
+
+
+## 0.23.9
+
+- Features
+  - Runtime/Platform: add `forceLoad` options to force-loading named controllers and introduce a
+    semantic debug flag for targeted troubleshooting.
+
+- Fixed
+  - Layout/Rendering: stabilize CSS grid sizing and baselines, keep grid height stable when rows
+    span, clamp widget list view height to the viewport, fix flexbox sizing regressions, and prevent
+    popup modal crashes from `renderViewport` access.
+  - CSS/Animations: smooth single-keyframe `opacity` animations, support `box-shadow` transitions,
+    avoid mutating cached transform arguments, preserve inherited values when properties are
+    removed, fix var-driven `background-color` transitions, and resolve absolutely positioned
+    percentage heights against the padding box.
+  - Accessibility semantics: correct semantics labels and positions, align default styles and
+    snapshots for inputs/buttons, and clean up flaky timing in accessibility tests.
+
+- Chore
+  - Upgrade dependencies for Flutter 3.38.x compatibility
+
+- Experiment
+  - CSS Grid: add initial grid layout support with explicit track parsing (`px`/`%`/`fr`), MVP
+    layout across explicit columns, auto-placement scaffolding, and `grid-auto-flow`/`gridAutoFlow`
+    configuration exposed to JavaScript.
+  - Accessibility: wire more elements into the semantics tree (including `<nav>` and email inputs),
+    add `aria-pressed`, `headingLevel`, `explicitChildNodes`, and new diagnostics flags to debug
+    semantics behavior.
+
+## 0.23.8+2
+
+fix: resync impls from main
+
+## 0.23.8+1
+
+fix: fix mismatched root viewport box when switch pages.
+
+## 0.23.8
+
+- Features
+  - Add `hybridHistory.buildContextStack()` API to expose the navigation context stack from the
+    bridge to Dart/Flutter.
+
+- Fixed
+  - CSS positioning: align absolute-positioned element sizing under flex containers for more
+    predictable widget and flex layout behavior.
+  - Widgets/layout: clamp `WebFWidgetElementChild` width under flex to respect container constraints
+    and avoid overflow.
+  - Routing/layout: fix layout errors that could occur when replacing the root route.
+  - Custom elements/bindings: ensure certain widget element binding properties are correctly wired
+    between bridge and Dart.
+
+## 0.23.7
+
+- Highlights
+  - Improved absolute positioning correctness, widget layout integration, and inline formatting
+    performance for self-owned elements.
+  - Simplified inline formatting context with new profiling hooks and reduced noisy layout logs.
+
+- Fixed
+  - CSS positioning: align absolute-positioned element sizing and auto-height resolution with spec;
+    fix sizing in flex overlay scenarios.
+  - Widgets/layout: respect widget child constraints for flex popups; honor CSS `width` for widgets;
+    fix `maxHeight` constraints for custom elements.
+
+- Performance
+  - Optimize the performance of self-owned elements and inline formatting context.
+
+## 0.23.6+1
+
+- Fixed
+  - webf/rendering: align `RenderTextBox` painting to its size; add guarded layout/paint logs.
+
+- Chore
+  - Add annotations for `WebFSubView`.
+  - Remove macOS prebuilt dynamic libs from repo.
+
+## 0.23.6
+
+Highlights
+
+- Backgrounds and gradients fidelity and layering: robust layered background parsing with per-layer
+  size/position, calc() support, correct paint order, and viewport-fixed/background-origin/clip
+  behavior; improved radial/conic prelude parsing and repeating-linear/-radial normalization.
+- Var-driven transitions and transforms: browser-aligned triggering and coalescing, deep var chain
+  expansion, color interpolation in premultiplied linear sRGB, and correct transform var() resolution
+  with snapshot-based interpolation.
+- New CSS APIs: `aspect-ratio` property and `clamp()` functional notation.
+- Rendering/layout: per-side solid borders with non-uniform border-radius; vertical-align
+  super/sub and <sub>/<sup>; flexbox positive free space suppression for indefinite main-size.
+- Stability and platform: multiple bridge threading guards; iOS bundle packaging fix.
+
+Features
+
+- CSS: support `aspect-ratio` property.
+- CSS Values: implement `clamp()` functional notation for lengths.
+- Rendering: paint per-side solid borders with non-uniform `border-radius`.
+
+Fixed
+
+- Backgrounds/Gradients
+  - Parse `radial-gradient` prelude and position (including `ellipse`, `at <position>`), and include
+    the first color stop when it starts with a color or var(...).
+  - Parse `conic-gradient` `at` position keywords.
+  - Normalize repeating-linear/-radial stops to a single cycle and derive pixel period for shader tiling.
+  - Respect `background-attachment: fixed` (anchor to viewport) and per-layer attachment; maintain layer
+    paint order for images and gradients.
+  - Position via `background-origin` and clip by `background-clip` (e.g., content-box).
+  - Support 3–4 token `background-position`, accept `calc()` tokens per axis, and stabilize computed
+    pixel serialization.
+  - Preserve `background-size: auto` intrinsic size and resolve per-layer size for px-stop normalization.
+  - Resolve layered shorthand without crashing; robust multi-image handling with per-layer position/size.
+
+- Transitions/Vars/Transforms
+  - Defer var-driven style updates to end-of-frame; treat as transitioning only when duration > 0.
+  - Prefer concrete previous values when coalescing; restrict fallback previous to colors only.
+  - Interpolate colors in premultiplied linear sRGB for browser-like midpoints.
+  - Deep var() chain expansion with overrides for correct previous resolution.
+  - Trim `transform()` args before var() parsing; resolve transform var() correctly.
+  - Freeze begin/end transform matrices at transition start and interpolate snapshots; only freeze when
+    no percentage or var() is present so % transforms still track layout.
+
+- Rendering/Layout/Text
+  - Correct background layering order; animate background-position/size during transitions.
+  - Support `<sub>`/`<sup>` and `vertical-align: super|sub`; avoid baseline placeholder crash.
+  - Flexbox: do not synthesize positive free space from automatic min main-size when container main size
+    is indefinite.
+  - Borders: dashed/rounded combinations fixed; remove stale inner reference in non-uniform border logs.
+
+- Selectors
+  - Exclude pseudo-only selectors from matching base elements in grouped selectors; keep `*,::before,::after`
+    working by matching `*` explicitly.
+
+- CSS Values/Size
+  - Support `width: fit-content(<length-percentage>)` via width:auto + max-width mapping.
+
+- Bridge/Platform
+  - Make forbidden-scope counters thread_local to prevent cross-thread imbalance.
+  - Guard `PostToDartSync` from double invocation and harden pending task tracking.
+  - Prevent concurrent mutation crash in `Dispatcher::Dispose`.
+
+## 0.23.5
+
+Highlights
+
+- Robust var-driven CSS transitions and transform behavior: canonicalized shorthand handling, alias
+  var() previous-value tracking, coalesced transform transitions, and consistent same-frame
+  scheduling for multiple properties.
+- CSS animations and timeline stability: parse combined keyframe selectors, resume view animation
+  timeline on attach, and improved debugging/trace logs.
+- Feature: add Flutter intrinsic size support for custom elements.
+- Stability and correctness fixes for percent-based transitions, background layering, gradients, and
+  color-scheme driven CSS variable updates.
+- Build and release hygiene: fix CMake build and add compressed debug symbols for previous release.
+
+Features
+
+- Add intrinsic size support for custom elements
+
+Fixed
+
+- Transitions/Animations (webf/css)
+  - Reset style on cancel and clear transform cache when transition config changes; cancel running
+    transitions instead of finishing.
+  - Schedule all property transitions in the same frame (not first-only) for consistency.
+  - Canonicalize var-driven transition config and honor shorthand mappings (background-position,
+    border-*, border-radius, padding, margin).
+  - Correct percent-based transition resolution and background layering.
+  - Coalesce transform transitions and parse scale decimals correctly.
+  - Resolve var() inside transform() arguments using raw custom property value.
+  - Parse combined keyframe selectors and ensure offset-sorted segments.
+- CSS Variables
+  - Capture alias previous values for var() to enable correct var-driven transitions.
+  - Improve robustness of var() expansion and border var() handling.
+  - Correct CSS variable updates for hsl() on color-scheme changes.
+- Rendering/Painting
+  - Refresh box decoration on size changes so percentage border-radius updates with width/height
+    transitions.
+
+## 0.23.4
+
+CSS performance overhaul, diagnostics, and reliability fixes
+
+- Measured impact:
+  recalcMs ↓ 209ms → 32ms (~84.7% reduction), flushMs ↓ ~203ms → ~25ms
+  (~87.8% reduction); recalc calls ↓ ~37% (462 → 292); dirtyTotal ↓ 45 → 26;
+  rootCount ↓ 5 → 2.
+
+### Performance
+
+- Enable CSS batching by default (batch recalc, stylesheet batching, 32ms
+  debounce) with counters for deferred/flush events.
+- Targeted invalidation via id/class/attr indices; suppress root-wide dirties
+  from head/html churn; flattened @import handling.
+- Index selectors by rightmost compound; reuse SelectorEvaluator; enable
+  memoization and ancestry fast-path by default.
+
+### Fixes
+
+- Parsing/layout: tolerate whitespace in calc(); guard null parentRenderStyle in
+  flex-basis computation; sync image sizing and viewport background.
+
+## 0.23.3
+
+DevTools/CDP coverage, CSS APIs, SVG refactor, stability fixes
+
+### Highlights
+
+- DevTools: significantly expanded Chrome DevTools Protocol coverage across DOM, CSS, Overlay,
+  Page, Network, and Log modules with robust node events and editing flows.
+- CSS APIs: new `CSS.createStyleSheet`, `CSS.forcePseudoState`, and `CSS.resolveValues` to resolve
+  property values in a node context.
+- Runtime: upgrade QuickJS to the latest release and add `queueMicrotask` on the global scope.
+- Layout/Rendering: correctness fixes in flexbox (single-line cross-size), absolute positioning
+  width resolution, and background-position animations; improved selector correctness and calc() parsing.
+- SVG: remove legacy in-engine SVG implementation and integrate `flutter_svg` for the `<svg>` element.
+
+### Features
+
+- DevTools (CDP)
+  - DOM: `describeNode`, `requestNode`, `querySelector`, `querySelectorAll`, `moveTo`, `setNodeName`,
+    `removeNode`, `removeAttribute`, `setAttributeValue` (bridge emits attributeModified),
+    `setChildNodes` seeding; node highlight helpers `highlightNode`, `hideHighlight`, `highlightRect`.
+  - Events: `DOM.attributeModified`/`DOM.attributeRemoved`, `DOM.characterDataModified`,
+    `DOM.childNodeCountUpdated`.
+  - CSS: `addRule` for inline `<style>` sheets and `collectClassNames`.
+  - CSS tracking: `trackComputedStyleUpdates`/`takeComputedStyleUpdates` to unblock Styles panel.
+- Runtime/Bridge
+  - Add `queueMicrotask` to the global scope.
+  - Upgrade QuickJS engine to latest release.
+- DOM/HTML
+  - `HTMLLinkElement.relList` property support.
+
+### Fixes
+
+- CSS
+  - Correctly parse nested `calc()` sums by stopping at the closing parenthesis.
+  - Selector correctness: compound descendant matching, `:root` of-type pseudos, pseudo-function text,
+    and invalid attribute name handling.
+  - Vendor-prefixed transform keys on `Element.style` now return `undefined` (spec compliance).
+- Layout/Rendering (webf)
+  - Flexbox: for single-line flex containers with a definite cross-size, use container inner cross-size
+    (fixes header height/alignment issues); subtract margins in cross-axis sizing.
+  - Absolute positioning: resolve width with left+right from containing block constraints to avoid
+    feedback loops and ensure coverage.
+  - Backgrounds: preserve animated `background-position` in computed style and add X/Y animation handlers;
+    honor layered gradient size/position and clip to border-radius.
+  - Text/Inline: implement `word-break: break-all` wrapping; anchors are inline by default.
+  - Crash: prevent `RenderBox` cast crash in `getBoundingClientRect`.
+- DOM/Parser
+  - Fragment parsing preserves whitespace and comment nodes; fix missing `<!>` anchor that broke
+    dynamic insertion.
+  - `document.createElementNS` third-parameter compatibility.
+- Runtime/Modules
+  - Fix ES Module leaks and ensure `requestAnimationFrame`/`cancelAnimationFrame` are own properties
+    on the global object.
+- DevTools (CDP)
+  - Improve Styles panel responsiveness via computed style tracking.
+  - Ensure text nodes appear correctly; avoid duplicate insertions; correct inline stylesheet IDs
+    (now String) and support `inline:<nodeId>` in `CSS.setStyleTexts`.
+
+## 0.23.2
+
+Next‑gen text layout/rendering and CSS feature upgrades
+
+### Highlights
+
+- New pseudo‑elements: ::first-line and ::first-letter with correct range computation and per‑range
+  overrides.
+- Text transforms: none/capitalize/uppercase/lowercase applied during text collection with proper
+  word boundary handling (incl. NBSP and ampersand cases).
+- Gradient text: background-clip:text for inline content with per‑line glyph masking; robust
+  gradient color-stop parsing (incl. hsl()/hsla()).
+- Units and metrics: support for ex unit and improvements to % for text-indent; avoid recursion for
+  ex‑based font-size and resolve against parent.
+- Line height behavior: inherit percentage line-height as used px to stabilize nested spacing while
+  preserving unitless multipliers.
+- Text decoration: multiple line values supported and correct propagation to descendants; default
+  color resolves to currentColor.
+- Layout correctness: fixes for block‑in‑inline line breaking/merging, CJK shrink in inline‑flex,
+  align-items:center using margin-box on cross‑axis.
+- Stacking context: implement z-index ordering and paint phases across positioned/stacking elements;
+  covered by new integration specs.
+- URL resolution: @import handling with correct URL resolution for CSS.
+
+### Features
+
+- Full support of inline box model
+- Add RTL (right-to-left) text direction support
+- Implement W3C-compliant whitespace processing with language-aware segment breaks
+- Add place-items shorthand and flex-safe semantics
+- Support @import with correct URL resolution
+- Add text-transform (none/capitalize/uppercase/lowercase) with collection-time application and tests
+- Support ex unit; apply to text-indent; add tests for ex and %
+- Add ::first-line pseudo-element support
+- Add ::first-letter pseudo-element support
+- Add support for <tt> element
+- Support inline background-clip:text with per-line glyph masking
+- Add list-style-type support for LI (decimal/alpha/roman)
+- Support displaying SVG via <img> and CSS background-image
+- tooling: enhance snapshot comparator and Chrome runner
+- Add stacking contexts and z-index ordering support
+- Optimize font-face loading
+
+### Fixes
+
+- Fix: make document.currentScript null in microtasks and modules
+- Fix: align pre tabs with tab-size; adjust flex-basis tests
+- Fix: freeze inherited percentage line-height to px to prevent nested spacing
+- Fix: handle hsl/hsla stops in gradients for background-clip:text
+- Fix: honor dir attribute and keep gradient text visible
+
+
+## 0.23.1
+
+### Features
+
+- **Build System**:
+  - Support for building Android x86_64 target for emulator support
+  - Add Windows builds using MSYS2 with full CI/CD pipeline
+
+- **DevTools**:
+  - Major improvements to Chrome DevTools Protocol integration
+  - Add debugging context for better state management
+  - Enhanced network, DOM, and CSS debugging capabilities
+  - Improved log and overlay module functionality
+
+- **Platform Support**:
+  - Full Windows/WSL platform support
+
+### Fixes
+
+- **Memory Management**:
+  - Fix malloc/free mismatch in Windows release builds
+  - Fix double free issues with NativeBindingObject om Windows Platform
+  - Fix null pointer dereference in Element::SetInlineStyleFromString
+  - Improve memory handling for touch events in Windows Platform
+  - Fix pre-defined atomic strings being optimized by compiler
+
+- **Build System**:
+  - Fix Android build with proper library dependencies
+  - Fix Windows executable path resolution
+  - Fix Linux build dependencies and integration tests
+  - Fix release stripping on Windows builds
+  - Make webf unit tests always compile correctly
+
+- **Rendering**:
+  - Fix router link element intrinsic height behavior
+  - Support dynamic viewport size changes
+  - Fix image dispose exceptions
+
+- **Input & Forms**:
+  - Fix click input immediately unfocusing issue
+  - Fix FormData missing chunks when sending with stream
+  - Restore original FormData implementation from v0.22.7+2
+
+- **Module System**:
+  - Fix custom module retrieval from invokeModule
+  - Fix WebF.defineModule cannot override built-in modules
+
+- **Testing**:
+  - Make integration tests support Linux and WSL environments
+  - Fix unit test execution on Windows
+  - Fix blob constructor specs
+  - Fix touch event crashes in tests
+  - Pass all snapshot comparisons on Windows
+
+- **Platform Specific**:
+  - Fix Windows toNativeString issues
+  - Enable HTTP cache on Windows platform
+  - Fix screen API not responding to WebF viewport size
+  - Fix Flutter viewport display size detection
+
+## 0.23.0+1
+
+Fix android build from source.
+
+## 0.23.0
+
+### Features
+
+- **Android Support**: Add support for Android 16KB page size compatibility.
+- **Input Elements**: Enhanced input field functionality:
+  - Set default border and height for input fields
+  - Add minimum width for input elements
+  - Support normal input dimensions with proper sizing
+- **Form Controls**: Enhance radio and checkbox functionality with programmatic state changes.
+- **Testing Infrastructure**:
+  - Add comprehensive integration test tools
+  - Add integration test comparison tools with Chrome
+  - Add multiple new integration tests for overlay, inline-block, and input sizing
+- **Open Source**: Move npm packages and modules to open source repository.
+- **String Performance**: Replace `std::string` with WebF String for better performance.
+- **Gesture**: Add Flutter gesture detector component support.
+
+### Fixes
+
+- **Rendering**: Fix export images issue when renderObject is not painted.
+- **Routing**:
+  - Revert timeout for resolve entrypoint
+  - Fix onBuildSuccess with route entry
+  - Increase wait times for hybrid route loaded
+- **Networking**: Filter extra WebF headers from HTTP requests.
+- **Memory Management**:
+  - Improve memory handling for JSValue in ScriptValue and event arguments
+  - Correct memory allocation size and pointer casting in interface template
+  - Handle duplicate atom entries in value cache
+  - Ensure proper memory cleanup in devtools object properties
+- **ListView**: Fix ListView footer reset issue.
+- **Input Elements**:
+  - Fix input element size with line-height and font size
+  - Preserve text selection when updating input value
+  - Update input dimensions and optimize type setting logic
+  - Fix input dimension issues
+- **Checkbox/Radio**: Fix set checked functionality in checkbox and radio elements.
+- **Textarea**: Enable textarea and fix all related specs.
+- **Layout**:
+  - Fix images with `width: auto` and `max-width` constraints to use natural size correctly
+  - Fix absolute child offset calculations
+  - Fix flex item auto size with min-width value
+  - Fix inline-block layout issues
+  - Honor explicit CSS height in RenderWidget for flex contexts
+  - **Constraints**: Safe way to read constraint values to prevent exceptions.
+- **Cache**: **Fix cache invalidation and clear functionality.
+- **Timer**: Fix timer API not firing when detached from Flutter.
+- **UI Sync**: Sync UI changes from detached stage to the DOM tree.
+- **URL Processing**: Correct variable types in URL processing to resolve compiler warnings.
+- **String Handling**: Fix buffer overflow in KURL::Init and infinite recursion in String::FromUTF8.
+- **Tests**:**
+  - Fix Flutter unit test failures
+  - Fix integration test failures
+  - Fix DOM test specs
+  - Update input and textarea snapshots
+- **Performance**: Fix LCP visible area reporting and renderCheck validations.
+
+### Refactoring
+
+- **Code Cleanup**:
+  - Remove deprecated `registerWith` method from WebFPlugin
+  - Cleanup logs throughout the codebase
+  - Cleanup WebF String API
+  - Fix broken symbol links
+- **Gesture System**: Refactor Flutter gesture detector and update bindings.
+- **Input Handling**: Improve input field padding and dimension handling.
+
+### Infrastructure
+
+- **Build**: Set architecture to arm64 only for macOS builds.
+- **CLI**: Avoid overriding index.ts from packages when it exists.
+- **Examples**: Fix example build issues and add checkbox example page.
+
+## 0.23.0-beta.3
+
+### Features
+
+- DevTools: improve Chrome DevTools Protocol (CDP) service stability.
+
+### Fixes
+
+- Layout: fix flexbox layout issue where flex items with percentage max-width were incorrectly expanding.
+- DOM: fix checked not work in checkbox/radio.
+- DOM: fix HTMLCollection/children staleness after `insertAdjacentElement('beforeend')`.
+- Bridge/C++: replace deprecated `char_traits<unsigned char>` usage with internal `char_trait`.
+- Bridge/C++: fix use-after-free in `script_value_ref.cc`.
+- Strings: correct `SpaceSplitString::Data::CreateVector` for Latin1 codec.
+- Build: resolve compilation breakages in recent changes.
+
+## 0.23.0-beta.2
+
+### Features
+
+* Flutter WidgetAdapter: optimized set-property performance of widget elements.
+* Scheduling: trigger `requestAnimationFrame` via `UICommands` for more predictable scheduling.
+* Runtime: show error page when route entrypoint is not found.
+* Bridge/Core: add `CharacterVisitor` utility for efficient string character handling.
+* Infra: remove legacy UI command implementations.
+* Infra: remove forced rebuild/layout for all view‑model property APIs.
+* **WebF DevTools**
+  * Preview image contents in DevTools.
+  * Replay past network requests when DevTools connects.
+  * Report exception network status to CDP DevTools.
+
+### Fixes
+
+* Network: removed `waitsForConnectivity` option on the Dio client to prevent hangs.
+* iOS: re‑generated symbol links to fix linking issues.
+* Bridge/Bindings: fixed `ConvertPropertyNameToAttributeName` encoding error.
+
+### Refactoring
+
+* Text/Unicode: replaced `UChar32` with `UCharCodePoint` for clarity; updated related methods and tests.
+
+### Breaking Changes
+
+* Removed legacy UI command implementations.
+* Removed forced rebuild/layout paths for view‑model property APIs.
+
+## 0.23.0-beta.1
+
+Updated QuickJS to commit b3caa5634ec95beb5f49a912774b26d7c2474ced
+
+### Features
+
+* Add core foundation implementations from Blink Source.
+
+  * Migrated string implementations from a QuickJS-based `AtomicString` to a Blink-implemented string.
+  * Temporarily disabled the unfinished CSS implementation feature. The current Dart CSS implementation remains functional.
+  * Upgraded the minimum NDK version requirement from r22 to r27 (27.3.13750724).
+* Added `document.currentScript` support.
+* Added `Element.insertAdjacentElement` support.
+* Added support for the `TextEncoder` API.
+* **WebF DevTools**
+  * Support multiple `WebFController` instances from a single Chrome DevTools service.
+  * Support hybrid router in application preview.
+* Added support for the `go_router` Flutter package.
+
+### Fixed
+
+* Fixed inline-flex container sizing so that gaps are only included in size calculations for display.
+* Corrected gap calculations in `justify-content` space distribution algorithms.
+* Fixed height calculation errors involving flex gaps and overflow.
+
+## 0.22.8
+
+### Features
+
+- Dio networking support with pluggable adapter and interceptors; backward‑compatible with existing HTTP interceptors
+- Use CupertinoHttp as the default http adapter for iOS/macOS platform.
+- Custom network options on `WebFController` (adapter selection, cache controls, logger options)
+- LoadingState records Fetch API request lifecycle for better diagnostics
+- Add hybrid router support in Chrome DevTools.
+
+### Fixes
+- Removed global HTTP overrides to avoid unintended side effects
+- Corrected Dio request tracking and metrics collection
+- Android: ensured Cronet cache directory is created when needed in example
+- iOS: build fixes for recent changes
+- Fix the screen cast from chrome devtools.
+
+## 0.22.7+2
+
+**Bug Fixed**
+
+reset LoadingState on controller detachFromFlutter
+
+- Call loadingState.reset() when WebFController detaches from Flutter
+- Ensures a clean slate per attachment and re-arms per-load once listeners
+
+## 0.22.7+1
+
+**Features**
+
+- LoadingState: once-only error listeners
+- Added onLoadingErrorOnce(types, callback, {debounce, perLoad})
+- Added onAnyLoadingErrorOnce(callback, {debounce, perLoad, types, grep, caseSensitive, invert})
+- Defaults to types {entrypoint, script, css, fetch}
+- Supports debounce coalescing and per-load rearming
+- Optional grep filter on URL/error to reduce noise
+- LoadingStateDump: greppable output
+- Added toStringFiltered({grep, caseSensitive, invert}) to filter dump lines
+
+Example updates
+
+• Use onAnyLoadingErrorOnce to dump once for entrypoint/script/css/fetch errors, debounced by 5s from first hit.
+
+## 0.22.7
+
+### Features
+- Added comprehensive loading error callbacks with typed error events (Bundle, Script, Network, Parse, Runtime)
+- Introduced `LoadingStateDumpOptions` for granular display control
+- Enhanced network request grouping by content type
+- Added preload mode support with Part I/Part II phase separation
+
+### Fixes
+- Fixed LCP auto-finalization when marked as final
+- Resolved loading_state_dumper_test failures
+- Corrected network request timing calculations
+- Fixed networkDetailed option to only control timing display
+
+### Refactoring
+- Renamed `LoadingStateDumper` to `LoadingState` for clarity
+
+
+## 0.22.6
+
+## Overview
+
+This patch release brings Dart 3.0 compatibility and introduces a powerful event listener system for
+the LoadingStateDumper, enabling developers to monitor and react to WebF's loading lifecycle phases
+in real-time.
+
+## 🚀 New Features
+
+#### Formatted String Output
+The `toString()` method now provides a beautifully formatted table view with:
+- **Summary Section**: Total duration, phase count, errors, network requests, and script elements
+- **Main Phases Table**: Shows all loading phases with timing, elapsed time, and percentages
+- **Network Requests Table**: Detailed network activity with status, size, and timing
+- **Script Elements Table**: Script loading and execution details
+- **Performance Metrics Section**: Separate tables for paint metrics (FP, FCP, LCP)
+- **Error Details**: Clear error reporting with timestamps and stack traces
+
+Example output:
+```
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                        WebFController Loading State Dump                      ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║ Total Duration: 2.38s
+║ Phases: 19
+║ Network Requests: 5 (4 successful, 1 failed, 0 errors)
+║ Total Network Time: 1.2s
+║ Total Downloaded: 245.3KB
+╚══════════════════════════════════════════════════════════════════════════════╝
+```
+
+#### JSON Export with toJson()
+Enhanced `toJson()` method exports the complete loading state as structured data:
+
+```dart
+final dump = controller.dumpLoadingState();
+final jsonData = dump.toJson();
+
+// Access structured data
+print(jsonData['summary']['totalDuration']); // 2380
+print(jsonData['network']['successfulRequests']); // 4
+print(jsonData['phases'][0]['name']); // "constructor"
+```
+
+JSON structure includes:
+- **summary**: High-level metrics and performance indicators
+- **network**: Network request statistics and totals
+- **scripts**: Script loading and execution statistics
+- **phases**: Detailed phase timeline with elapsed times
+- **networkRequests**: Complete network request details
+- **scriptElements**: Script element tracking data
+- **errors**: Error details with timestamps and stack traces
+
+### Event Listener System for LoadingStateDumper
+
+Added comprehensive event callbacks for all main loading phases, allowing developers to monitor the
+WebF loading process with precise timing information.
+
+#### Available Event Listeners:
+- `onConstructor()` - WebF controller construction
+- `onInit()` - Initialization phase
+- `onPreload()` - Preloading resources
+- `onResolveEntrypointStart/End()` - Entry point resolution
+- `onParseHTMLStart/End()` - HTML parsing
+- `onScriptQueue()` - Script queuing
+- `onScriptLoadStart/Complete()` - Script loading
+- `onScriptExecuteStart/Complete()` - Script execution
+- `onAttachToFlutter()` - Flutter widget attachment
+- `onDOMContentLoaded()` - DOM ready state
+- `onWindowLoad()` - Window load complete
+- `onBuildRootView()` - Root view construction
+- `onFirstPaint()` - First paint (FP)
+- `onFirstContentfulPaint()` - First contentful paint (FCP)
+- `onLargestContentfulPaint()` - Largest contentful paint (LCP)
+
+#### Usage Example:
+```dart
+controller.loadingStateDumper.onFirstPaint((event) {
+  print('First Paint at ${event.elapsed.inMilliseconds}ms');
+});
+
+controller.loadingStateDumper.onLargestContentfulPaint((event) {
+  final isFinal = event.parameters['isFinal'] ?? false;
+  if (isFinal) {
+    print('LCP finalized at ${event.elapsed.inMilliseconds}ms');
+  }
+});
+```
+### Others
+
+- **Minimum SDK**: Updated from Dart 2.18.0 to 3.0.0
+
+## 0.22.5
+
+Bug Fixes
+
+- Fixed exceptions when reporting LCP (Largest Contentful Paint) information on img elements. This
+  ensures more reliable performance metric collection for image-heavy pages.
+- Removed the maxConnectionsPerHost limits for each HTTP client. This improvement allows for better
+  concurrent connection handling and improved network performance, especially for applications
+  making multiple simultaneous requests.
+
+## 0.22.4
+
+Bug Fixes
+
+- Fix event dispatcher to properly handle null event targets
+- Improve content verification with better error handling and logging
+- Update controller to handle verification exceptions gracefully
+
+## 0.22.3+2
+
+Fix compile error with Android NDK r22
+
+## 0.22.3+1
+
+Major Features Added
+
+1. 🔍 Loading State Dump API - A comprehensive debugging tool that tracks and visualizes the entire WebFController loading lifecycle:
+   - Tracks 19+ lifecycle phases with detailed timing
+   - Individual script element monitoring (load/execute times, errors)
+   - Network request metrics
+   - ASCII timeline visualization
+   - Full API documentation and examples
+2. 📜 Enhanced Script Tracking - Individual script elements now report:
+   - Loading phases (queue → load → execute)
+   - Script types and loading modes
+   - Execution duration and data sizes
+   - Error states with context
+
+Bug Fixes
+
+1. 🇨🇳 CJK Font Alignment - Fixed baseline alignment issues between CJK and Latin text:
+   - Adjusted normalization ratio from 0.75/0.25 to 0.85/0.15
+   - Added forced CJK ratio for consistent rendering
+   - 10 new visual regression tests
+2. 🖼️ Image Loading Race Condition - Fixed images disappearing during widget mount/unmount:
+   - Added pending update tracking
+   - Deferred updates with next frame callback
+   - Ensures reliable image display
+3. 🔄 Hybrid Router Events - Fixed multiple event triggers:
+   - New addPostEventListenerOnce method
+   - Auto-removes listeners after first execution
+   - Prevents duplicate navigation events
+4. 📱 Android 16 Support - Temporarily disabled:
+   - Commented out page size configuration
+   - Downgraded NDK from 28.2 to 22.1
+
+## 0.22.3
+
+## New Features
+
+### Web Platform APIs
+
+- **TextEncoder/TextDecoder API** - Full implementation of the WHATWG Encoding Standard
+  - Support for UTF-8, ASCII, and Latin1 encodings
+  - Fatal and non-fatal error modes
+  - BOM (Byte Order Mark) handling
+  - Comprehensive test coverage for edge cases
+
+- **Web Streams API** - Initial implementation for streaming data handling
+
+- **URL API Enhancements**
+  - Added `username` and `password` properties with proper percent-encoding
+  - Full compliance with WHATWG URL standard
+
+- **Document API**
+  - Added `document.currentScript` property for accessing the currently executing script element
+  - Shadow DOM polyfill with `element.attachShadow()` support
+
+### Framework Support
+
+- **Vite Vue Apps** - Added support for Vue applications deployed on Vercel
+- **Next.js** - Fixed import issues and added example project
+
+### Platform Support
+
+- **Android 16** - Added support for Android 16 page size requirements
+
+## Bug Fixes
+
+### Layout and Rendering
+
+- **Text Wrapping in Inline Elements** ⭐
+  - Fixed critical issue where inline elements (like `<span>`) inside parents with `max-width` were not wrapping text properly
+  - Text now correctly respects parent width constraints
+  - Special handling for flex items with `flex: none`
+
+- **CJK Font Baseline Alignment** ⭐
+  - Normalized CJK (Chinese, Japanese, Korean) font metrics for proper baseline alignment with Latin text
+  - Implemented interpolated normalization based on CJK content ratio
+  - Ensures consistent vertical alignment in mixed-language content
+
+- **getBoundingClientRect Improvements**
+  - Fixed offset values for elements in nested scroll views
+  - Proper handling of elements in modal popups and separate render trees
+  - Consistent viewport-relative coordinate calculation
+
+- **Performance.measure()** - Fixed timestamp parameter support
+
+## 0.22.2+2
+
+## Bug Fixes
+
+- Fix crash when elements in modal popups call getBoundingClientRect
+- Fix ScrollController.hasClients checks to prevent accessing position when not attached
+- Fix getBoundingClientRect to include scroll offset (excludeScrollOffset: false)
+- Add special handling for sticky positioned elements when calculating offsetTop/offsetLeft
+
+## 0.22.2+1
+
+## Bug Fixes
+
+- Router Event Ordering: Fixed an issue where router events could fire before onscreen events, ensuring proper event sequence for navigation handling
+- SVG Image Loading: Resolved SVG image loading failures that were preventing SVG assets from rendering correctly
+
+## 0.22.2
+
+## Features
+
+CSS Flexbox Enhancements
+
+- Flex Gap Support: Implemented CSS flex gap property for better spacing control between flex items
+- Flex Order Support: Implemented CSS flex order property allowing flexible reordering of flex items
+
+Navigation & UI Components
+
+- WebFSubView Widget: Added new widget for hybrid navigation support, enabling seamless integration of WebF views within Flutter navigation stacks
+- Enhanced Router Navigation: Ensure didPush/didPushNext events fire after widgets are onscreen
+- Showcase Screen: Added ShowcaseScreen and integrated it with WebFScreen for navigation in playground_app
+
+## Bug Fixes
+
+Critical Fixes
+
+- Text Layout: Fixed text constraints calculation in flex containers with percentage-based max-width values
+- Image Elements: Fixed dynamic style and DOM node updates for image elements, resolving loading and rendering issues
+
+## 0.22.1
+
+## Bug Fixes
+
+### Text and Layout
+
+- **CJK Text Alignment**: Improved CJK text baseline alignment with Latin text for better
+  international support
+- **Text Wrapping**: Fixed text wrapper behavior and max-width 50% text container height fitting
+- **Flex Layout**: Multiple fixes for flexbox layout including:
+  - Fixed flex-basis and flex item layout size calculations
+  - Resolved flex layout issues with text-only content
+  - Fixed child constraints max height handling
+  - Improved getConstraints to avoid unnecessary computeContentBoxLogic calculations
+- Fixed OnScreen/OffScreen Event Order: Corrected the dispatch order of visibility events to ensure
+  consistent behavior
+
+### CSS and Positioning
+
+- **Fixed Positioning**: CSS fixed positioning now returns correct getBoundingClientRect values
+- **Border Rendering**: Fixed dashed border detection logic in box decoration painter
+
+### Performance and Memory
+
+- **JS Thread Stack Size**: Set JS thread max stack size to 8MB in debug mode for better debugging
+  experience
+- **Stack Size Adjustment**: Adjusted max stack size for JSRuntime to prevent overflow issues
+- **Event Ordering**: Ensured consistent OnScreen/OffScreen event ordering during rapid switching
+
+### Platform-Specific
+
+- **iOS Compilation**: Fixed iOS compilation issues
+- **TypeScript**: Resolved TypeScript compilation issues
+- **Release Mode**: Fixed content visible reporting in release mode
+
+## 0.22.0
+
+Features
+
+### WebF CLI Code Generator
+- New powerful CLI tool for generating type-safe bindings between Flutter/Dart and JavaScript frameworks
+- Auto-creation of projects with interactive prompts
+- Support for React and Vue framework code generation
+- NPM publishing support with custom registry options
+- Automatic metadata synchronization from Flutter package's pubspec.yaml
+- TypeScript type alias support and improved union type handling
+
+To use the new CLI code generator:
+```bash
+webf codegen [output-dir] --flutter-package-src=<path> [--framework=react|vue]
+```
+
+### UI Command Ring Buffer System
+- New ring buffer implementation for UI command system, improving performance
+- Configurable fallback to legacy UI command sync system
+- Enhanced memory management with reduced allocations
+- Better command batching and atomic operations
+
+### WebF DevTools Enhancements
+- New Network panel with request/response inspection
+- JSON viewer for complex data structures
+- Routes tab for router state inspection
+- Enhanced object property inspection
+- Request body inspection and image preview support
+- Performance metrics display in DevTools
+- Improved error handling and memory leak fixes
+
+### Component Libraries
+- New `@openwebf/react-core-ui` package for React components
+- New `@openwebf/react-cupertino-ui` package
+- Enhanced React Router integration with core UI components
+- Support for lazy rendering in core UI components
+
+### ES Module Support
+- Added ES module support to WebF
+- Support for `import.meta` and `import.meta.url`
+- HTTP/HTTPS import support
+- Better module loading with error recovery
+
+Others
+
+- Thread stack size increased to 8MB for JS workers
+
+Bug Fixed
+
+- Fixed multiple memory leaks:
+  - Date and RegExp objects in DevTools
+  - Inline CSS style declaration native bindings
+  - Event listener options
+  - Widget element shapes
+  - SharedNativeString in UI commands
+- Improved atomic_string memory safety
+- Fixed dashed border detection logic
+- Fixed flex layout issues with text-only content
+- Fixed loading display when init route link not ready
+- Support for table elements with configurable column sizes
+- Fixed table header scrolling in horizontal direction
+- Fixed ListView header/footer reset on refresh
+- Fixed event.target.value access from input elements
+- Fixed image object-fit position alignment
+- Fixed TypeScript compilation issues
+- Fixed OnScreen/OffScreen event ordering during rapid switching
+
+## 0.21.8
+
+Bug Fixes
+
+### Hybrid History Module
+- **Fixed null context handling** - Prevents crashes when hybrid history methods are called before Flutter context is attached
+  - Modified `path()` and `state()` methods in `HybridHistoryDelegate` to accept nullable BuildContext
+  - Added null safety checks in `HybridHistoryModule` to handle cases where context is not yet available
+  - Extracted `getState()` method for better code organization and null safety
+  - Ensures `path()` and `state()` API methods can be safely called during initialization
+
+## 0.21.7+2
+
+Bug Fixes
+
+### Performance Metrics
+
+- **Fixed `isEvaluated` parameter in performance callbacks
+  - The `isEvaluated` parameter in `onFP`, `onFCP`, and `onLCP` callbacks now correctly reflects the
+    controller's evaluated state when performance tracking started, rather than the current state
+    when the callback fires
+- Performance Metrics: Fixed content visibility reporting in release mode, ensuring accurate
+  performance metric callbacks (FCP/LCP) are triggered correctly in production builds
+
+## 0.21.7+1
+
+Bug Fixes
+
+### Content Verification Fix
+- Fixed content verification to use the correct root render object (`RenderViewportBox`) instead of `document.documentElement`
+- This ensures that content detection works properly with WebF's rendering architecture
+- Affected methods:
+  - `ContentVerification.getContentInfoFromDocument()`
+  - `ContentVerification.hasVisibleContentInDocument()`
+  - `ContentVerification.getTotalVisibleContentArea()`
+
+## 0.21.7
+
+New Features
+
+Performance Metrics Enhancements
+
+- Added evaluate variable in performance metrics callbacks: Performance metric callbacks now include an evaluate parameter, providing more context for metric reporting in WebFController
+- Route-specific performance metrics tracking: Performance metrics (FP/FCP/LCP) are now tracked per route, allowing detailed performance analysis for multi-route applications
+- Contentful widget detection: Implemented intelligent detection system to ensure FCP/LCP are only reported for widgets with actual visual content, improving metric accuracy
+- First Contentful Paint (FCP) support: Added complete FCP implementation to track when the first contentful element is rendered
+- First Paint (FP) support: Added FP metric tracking for initial visual changes
+- Standalone content verification system: New system for verifying and validating content rendering
+
+Improvements
+
+HTTP Client Stability
+
+- Socket error handling: Added robust error handling for 'Bad file descriptor' socket errors with automatic recovery mechanism
+- Connection management: Configured HTTP client with optimized settings:
+  - Idle timeout: 15 seconds to close stale connections
+  - Connection timeout: 30 seconds
+  - Max connections per host: 6
+- Stream error handling: Fixed 'Cannot add event after closing' errors in HTTP client
+- Cache reliability: Improved HTTP cache lock acquisition for better concurrency handling
+
+DevTools Enhancements
+
+- Performance metrics display: Only attached controller's performance metrics are now shown in DevTools, reducing clutter
+- Unified metrics view: FP/FCP/LCP metrics are displayed in a unified, organized manner
+
+Bug Fixes
+
+- Loading display: Fixed loading display issues when initial route link elements were not ready
+- Default initial route: Added proper default initial route handling
+- Text LCP calculation: Updated text LCP calculation to use actual text bounding box for more accurate measurements
+
+Technical Details
+
+- Enhanced error recovery with detailed logging for debugging
+- Improved performance metric accuracy with content verification
+- Better multi-route application support with per-route metric tracking
+
+## 0.21.6
+
+## New Features
+
+### LCP (Largest Contentful Paint) Performance Metric
+
+WebF now supports tracking Largest Contentful Paint (LCP), one of Google's Core Web Vitals metrics. LCP measures the render time of the largest image or text block visible within the viewport, providing insights into perceived loading performance.
+
+#### Features:
+- **Progressive LCP tracking**: Get real-time updates as larger content elements are rendered
+- **Final LCP reporting**: Receive the final LCP value when measurement is complete
+- **Automatic finalization**: LCP is finalized on user interaction, after 5 seconds, or on navigation
+- **DevTools integration**: View LCP metrics in the WebF DevTools performance panel
+
+#### Usage:
+
+```dart
+// With WebFControllerManager (recommended)
+await WebFControllerManager.instance.addWithPreload(
+  name: 'my_page',
+  createController: () => WebFController(
+    onLCP: (time) => analytics.track('lcp', time),
+    onLCPFinal: (time) => analytics.track('lcp_final', time),
+  ),
+  bundle: bundle,
+);
+```
+
+## 0.21.5+4
+
+Same as 0.21.5+3, but reverts some unintended changes introduced in 0.22.0
+
+## 0.21.5+3
+
+### Global Cache Management API
+
+We've added a new static API `WebF.clearAllCaches()` that provides a unified way to clear all WebF
+caches, including both HTTP caches and QuickJS bytecode caches. This API is particularly useful for:
+
+- Freeing up disk space
+- Ensuring fresh content after updates
+- Debugging cache-related issues
+- Managing app storage in production
+
+#### Usage Example
+
+```dart
+// Clear all caches (both HTTP and bytecode)
+await WebF.clearAllCaches();
+```
+
+## Features
+
+- **`WebF.clearAllCaches()` API**: A new static method that clears all local caches
+  - Clears HTTP disk caches in the `HttpCaches` directory
+  - Clears QuickJS bytecode caches in the `ByteCodeCaches_*` directory
+  - Clears all in-memory cache instances
+  - Handles concurrent operations gracefully
+  - Provides robust error recovery for platform-specific file system issues
+
+## Improvements
+
+- **Cross-Platform File System Support**: Enhanced error handling for directory deletion operations
+  across different platforms
+  - macOS/iOS: Handles errno 66 (ENOTEMPTY)
+  - Linux/Android: Handles errno 39 (ENOTEMPTY)
+  - Implements fallback strategy to delete files individually when directory deletion fails
+  - Gracefully handles concurrent cache operations
+
+- **Memory Cache Management**: Added methods to clear memory caches
+  - `HttpCacheController.clearAllMemoryCaches()`: Clears all HTTP memory caches
+  - `QuickJSByteCodeCache.clearMemoryCache()`: Clears bytecode memory caches
+
+## 0.21.5+2
+
+## Overview
+
+This patch release focuses on improving stability and reliability by addressing critical issues in
+the HTTP cache implementation and enhancing error recovery for malformed content.
+
+## 🐛 Bug Fixes
+
+### HTTP Cache Implementation
+
+- **Fixed header parsing typo** that was causing incorrect kvTuple.length check
+- **Resolved race conditions** by implementing file locking to prevent concurrent access
+- **Fixed cache corruption issues** with atomic write operations using temp file + rename pattern
+- **Fixed hash collision issues** by replacing url.hashCode with SHA-256 hash
+- **Fixed memory leaks** in error handling with proper cleanup
+- **Fixed test timing issues** by tracking async cache writes
+
+### Error Recovery for Malformed Content
+
+- **Improved HTML parser error handling** with proper validation and logging
+- **Enhanced JavaScript execution** with input validation and size limits (100MB)
+- **Added pre-validation** in Dart layer before native parsing
+- **Fixed partial DOM creation** to continue even when some elements fail
+
+## ✨ Improvements
+
+### Cache System Enhancements
+
+- Added content checksum validation for cache integrity
+- Added version identifier to cache format for future compatibility
+- Improved error recovery and resource cleanup
+- Added comprehensive validation for cached content
+
+### Content Processing Enhancements
+
+- Added ExceptionState usage for better error propagation
+- Made traverseHTML return bool to track parsing success
+- Enhanced bytecode evaluation with better error messages
+- Added graceful degradation for parsing errors
+
+## 0.21.5+1
+
+### 🎯 Simplified JavaScript Channel Integration
+
+- **Automatic WebFJavaScriptChannel Creation**: The `WebFJavaScriptChannel` is now automatically
+  available through `controller.javascriptChannel` getter
+- **Removed Manual Initialization**: No longer need to manually create and pass
+  `WebFJavaScriptChannel` instances to controllers
+- **Seamless Integration**: Works automatically with all `WebFController` instances, including those
+  managed by `WebFControllerManager`
+
+### 🔧 Enhanced Navigation Delegate Configuration
+
+- **Flexible Configuration**: `navigationDelegate` is now a mutable property that can be set via the
+  `setup()` callback
+- **Consistent API Pattern**: Aligns with other controller configuration patterns for better
+  consistency
+- **Removed Deprecated Methods**: The deprecated `setNavigationDelegate()` method has been removed
+
+## Breaking Changes
+
+### WebFController Constructor Changes
+
+- **Removed Parameters**:
+  - `javaScriptChannel` parameter removed from constructor
+  - `navigationDelegate` parameter removed from constructor
+
+### Migration Guide
+
+**Before (0.21.5):**
+
+```dart
+
+final jsChannel = WebFJavaScriptChannel();
+final controller = WebFController(
+  viewportWidth: 360,
+  viewportHeight: 640,
+  javaScriptChannel: jsChannel,
+  navigationDelegate: myNavigationDelegate,
+);
+```
+
+**After (0.21.5+1):**
+
+```dart
+
+final controller = WebFController(
+  viewportWidth: 360,
+  viewportHeight: 640,
+  setup: (controller) {
+    controller.navigationDelegate = myNavigationDelegate;
+  },
+);
+
+// JavaScript channel is now automatically available
+controller.javascriptChannel.invokeMethod
+('method
+'
+,
+'Hello'
+);
+```
+
+## 0.21.5
+
+🐛 Bug Fixes
+
+- Fixed ListView header and footer state
+  management (https://github.com/openwebf/webf/commit/19f144340)
+  - Reset internal refresh/loading states when calling finishRefresh, finishLoad, resetHeader, and
+    resetFooter APIs
+  - Prevents state inconsistencies that could cause refresh/load indicators to get stuck
+  - Ensures proper state synchronization between internal flags and refresh controller
+
+- Fixed dark mode not updating when controller was not
+  evaluated (https://github.com/openwebf/webf/commit/d0013123c)
+  - Dark mode changes now apply immediately regardless of controller evaluation state
+  - Removed unnecessary check that prevented dark mode updates before content was loaded
+  - Ensures consistent dark mode behavior throughout the controller lifecycle
+
+🔧 Improvements
+
+- Enhanced error handling with error builder
+  support (https://github.com/openwebf/webf/commit/0c18d2a14)
+  - Show error builder widget when encountering unexpected errors during WebF build
+  - Added debug print statements for better error diagnostics
+  - Handles cases where route is not found, controller is disposed, or documentElement is null
+  - Provides better developer experience with clear error messages
+
+- Made NetworkBundle's HTTP client public (https://github.com/openwebf/webf/commit/e053f1698)
+  - Changed `_sharedHttpClient` to `sharedHttpClient` to allow external access
+  - Enables developers to configure the shared HTTP client used by NetworkBundle
+  - Useful for setting custom headers, timeouts, or other HTTP client configurations
+
+## 0.21.4+2
+
+🐛 Bug Fixes
+
+- Fixed race condition in EventTarget disposal (https://github.com/openwebf/webf/commit/4ece049c5)
+  - Defers freeing of pointers with pending events until controller disposal
+  - Prevents potential crashes when EventTarget objects are garbage collected while still
+    dispatching events
+  - Adds separate tracking for pointers with pending events using _pendingPointersWithEvents list
+  - Increases batch threshold from 500 to 2000 for better performance
+
+## 0.21.4+1
+
+🐛 Bug Fixes
+
+- Fixed WebFTextElement not updating when React.js changes TextNode
+  data (https://github.com/openwebf/webf/commit/70fd51128)
+  - Added proper update mechanism for text elements when React.js modifies TextNode data directly
+  - Resolved issue where React text updates weren't reflected in the UI
+  - Implemented notifyRootTextElement() method to update ancestor WebFTextElement nodes
+  - Added comprehensive test coverage for text element updates
+- Fixed preloaded bundle disposal issue for SVG
+  images (https://github.com/openwebf/webf/commit/2b6e8a4da)
+  - Prevented disposal of preloaded bundles after first use
+  - Ensured preloaded SVG images can be efficiently reused across multiple img elements
+  - Added proper bundle lifecycle management for preloaded resources
+- Fixed text span edge case (https://github.com/openwebf/webf/commit/77090f40e)
+  - Added proper bounds checking in WebFTextSpan to prevent substring index out of bounds errors
+  - Improved text content extraction safety
+
+✨ Features
+
+- Added ListView properties support (https://github.com/openwebf/webf/commit/574c0d867)
+  - Added support for shrinkWrap: false in ListView components
+
+🔧 Chores
+
+- Added android:use-prebuilt npm script for Android package
+  building (https://github.com/openwebf/webf/commit/77090f40e)
+
+## v0.21.4
+
+### 🚀 New Features
+
+#### Developer Tools
+
+- **WebF Inspector**: Added a floating inspector panel for real-time WebF controller management and
+  debugging
+  - View active, detached, and disposed controller counts
+  - Monitor controller states and configurations
+  - Bulk disposal of controllers for testing
+  - Visual debugging interface for development
+
+#### Performance & Memory Management
+
+- **Idle Scheduling for Memory Cleanup**: Implemented batch freeing of native binding objects during
+  idle time
+  - Processes up to 100 pointers per idle frame to avoid UI blocking
+  - Automatic batch cleanup when threshold (500 pointers) is reached
+  - Improved memory management and reduced overhead
+
+#### Build System
+
+- **iOS Prebuilt Framework Support**: Added scripts to use prebuilt frameworks instead of source
+  compilation
+  - `npm run ios:use-prebuilt`: Switch to xcframework usage
+  - `npm run ios:use-source`: Revert to source compilation
+  - Significantly reduces pod install time for iOS builds
+
+#### Platform Features
+
+- **Method Channel Timeout**: Added configurable timeout limits for WebF method channel calls to
+  prevent hanging
+
+### 🐛 Bug Fixes
+
+#### CSS & Styling
+
+- **CSS Variables with display:none**: Fixed CSS variables not updating correctly for elements with
+  `display: none`
+- **Gradient Cache**: Improved gradient cache invalidation with comprehensive test coverage
+- **Flexbox Constraints**: Fixed maxHeight constraints not being properly applied to flex items
+- **Transition Animations**: Fixed transitions not triggering when elements are mounted
+
+#### Memory & Resource Management
+
+- **Image Memory Leak**: Fixed BoxFitImage holding controller instances causing memory leaks
+- **Animation Parsing**: Fixed CSS animation parsing issues when controller is detached or disposed
+
+#### Platform-Specific
+
+- **iOS Compilation**: Fixed iOS compilation issues
+
+## 0.21.3
+
+🚀 New Features
+
+Memory Management
+
+- Batch cleanup system for native binding objects - Implemented efficient memory cleanup with
+  batchFreeNativeBindingObjects C++ function and IdleCleanupManager to schedule cleanup operations
+  during idle time, reducing memory
+  fragmentation and preventing main thread blocking
+
+ListView Enhancements
+
+- resetHeader and resetFooter API - Added new APIs for ListView element to programmatically reset
+  header and footer components
+
+HTML & Preloading
+
+- HTML link preloading - Added support for <link rel="preload"> with 'as' attribute for resource
+  preloading
+- Programmatic preloading - Added addPreloadedBundle method to WebFController
+
+Text & Layout
+
+- Text reflow in flex containers - Improved dynamic height adjustment of text and inline elements
+  within flex containers with proper text reflow when container width changes
+- Text overflow and line clamp - Added support for setting text overflow and line clamp properties
+  on text elements
+
+🐛 Bug Fixes
+
+Layout & Rendering
+
+- Flex content size calculation - Fixed incorrect maxHeight clamping in flex content size
+  calculation and removed maxHeight constraint from content size calculation
+- Scrollable overflow - Fixed scrollable exception with overflow hidden
+- Route link activation - Fixed route link path activation to only occur after router link is
+  connected
+
+Runtime & Memory
+
+- Context validation - Added context valid checks for handleBindingCall from Dart
+- QuickJS garbage collection - Always turn on QuickJS GC for better memory management
+- iOS compilation - Fixed iOS compile options in release mode
+
+🧹 Maintenance
+
+- Legacy API removal - Removed legacy profile AP
+
+## 0.21.2+1
+
+New Features
+
+### Added `<text />` Layout Element
+
+- New text component that provides more precise text layout control
+- Supports proper whitespace handling, including collapsing and trimming
+- Configurable with CSS properties like font-family, line-height, text-align
+
+### Enhanced ListView Pull-to-Refresh and Load More
+
+- Added automatic event dispatch for pull-to-refresh and load-more actions
+
+### Improved Router Link Event Handling
+
+- Fixed event firing order for router navigation events
+- Events now fire correctly after the onscreen event when navigating
+- Added `dispatchEventByDeps` method to ensure proper event sequencing
+- Enhanced event dependency tracking to handle timing-sensitive events
+
+### Android Build Improvements
+
+- Added pre-compile scripts for Android to streamline the build process:
+  - `build_android_jnilibs.js`: Copies JNI libraries from bridge/build to webf/android/jniLibs
+  - `build_android_package.js`: Orchestrates the entire Android package build process
+  - `patch_android_build_gradle.js`: Updates Android build.gradle for pre-compiled libraries
+
+## Bug Fixes
+
+- Fixed iOS build issues
+- Revert the changes for resizeViewportRelatedElements.
+
+## 0.21.2
+
+New Features
+
+FormData Support
+
+- Added FormData/File API support for web-compatible file uploads
+- Implemented native FormData interface with proper multipart handling
+- Extended fetch module to work with FormData objects
+
+Pull-to-Refresh Improvements
+
+- Integrated easy_refresh package for better pull refresh and load more functionality
+- Simplified custom ListView implementation with native refresh capabilities
+
+Bug Fixes
+
+Layout Improvements
+
+- Fixed position layout handling for elements not connected to DOM
+- Made flushPendingProperties synchronous for more predictable layout behavior
+- Fixed viewport metrics changes by properly dispatching relayout for affected render objects
+- Disabled scrolling when overflow is set to hidden
+- Fixed line-height computation when inheriting from parent elements
+
+Crash Fixes
+
+- Fixed issue where _hostSet was not properly initialized
+
+Build System
+
+- Made bytecode generator into a standalone script for better maintainability
+- Fixed Android NDK limits for better cross-platform compatibility
+
+Framework Improvements
+
+- Fixed forceUpdate on WebF controller when created by AutoManagedWebF widget
+
+## 0.21.1
+
+New Features
+
+- Upgraded to official QuickJS version 2025-04-26
+- Added visual error handling for layout errors showing on-screen exceptions
+- Generate polyfill bytecode in production mode for better performance
+
+Bug Fixes
+
+- Fixed crash when passing parameters to new Blob constructor
+- Fixed scrollableViewportSize to correctly constrain box layout
+- Fixed renderStyle.isScrollingContainer implementation
+- Only show layout errors in debug/profile mode (hidden in release mode)
+- Fixed WebF.fromControllerName in concurrent conditions
+- Fixed passing parameter to new Blob constructor
+- Fixed gesture event hitTest functionality
+- Fixed inline text placeholder hitTest
+- Added lineAscentHeightOffset to text layout lineOffset
+- Fixed various Windows compilation issues
+
+Infrastructure & Building
+
+- Added support for compiling with MSYS2
+- Removed legacy QuickJS engine and bytecode generator
+
+QuickJS Release Logs between the previous used version:
+
+2025-04-26:
+
+- removed the bignum extensions and qjscalc
+- new BigInt implementation optimized for small numbers
+- added WeakRef, FinalizationRegistry and symbols as weakrefs
+- added builtin float64 printing and parsing functions for more correctness
+- faster repeated string concatenation
+- qjs: promise unhandled rejections are fatal errors by default
+- added column number in debug information
+- removed the "use strip" extension
+- qjs: added -s and --strip-source options
+- qjsc: added -s and --keep-source options
+- added JS_GetAnyOpaque()
+- added more callbacks for exotic objects in JSClassExoticMethods
+- misc bug fixes
+
+2024-01-13:
+
+- top-level-await support in modules
+- allow 'await' in the REPL
+- added Array.prototype.{with,toReversed,toSpliced,toSorted} and
+  TypedArray.prototype.{with,toReversed,toSorted}
+- added String.prototype.isWellFormed and String.prototype.toWellFormed
+- added Object.groupBy and Map.groupBy
+- added Promise.withResolvers
+- class static block
+- 'in' operator support for private fields
+- optional chaining fixes
+- added RegExp 'd' flag
+- fixed RegExp zero length match logic
+- fixed RegExp case insensitive flag
+- added os.sleepAsync(), os.getpid() and os.now()
+- added cosmopolitan build
+- misc bug fixes
+
+2023-12-09:
+
+- added Object.hasOwn, {String|Array|TypedArray}.prototype.at,
+  {Array|TypedArray}.prototype.findLast{Index}
+- BigInt support is enabled even if CONFIG_BIGNUM disabled
+- updated to Unicode 15.0.0
+- misc bug fixes
+
+## 0.21.0-beta.7
+
+**Bug Fixes**
+
+Dark Mode Improvements
+
+- Enhanced darkModeOverride: Improved dark mode handling in widget mode with a more robust
+  implementation [d6908531c]
+  - Added proper change detection to prevent unnecessary style recalculations
+  - Ensured events and style updates occur only when actual changes happen
+  - Simplified API by eliminating need for manual platform brightness change calls
+  - Added clear documentation explaining conditional logic
+
+QuickJS Runtime Fixes
+
+- JSClassID Overflow Fix: Fixed critical crash that occurred when total created controller instances
+  exceeded 200. [89c1887ef]
+- Bundle Preprocessing: Added checks to ensure page is alive when preprocessing JavaScript bundles,
+  preventing potential crashes.
+  [2dd2b7d91]
+
+CSS & Styling Fixes
+
+- CSS Variables: Fixed issues when overriding CSS variable properties with normal CSS values,
+  improving CSS variable reliability.
+  [936562108]
+- Head Element Style Reload: Fixed null exception that occurred when reloading styles in head
+  elements. [907804f4d]
+
+Layout Engine Improvements
+
+- Flexbox Container Sizing: Significantly improved flexbox margin handling with proper container
+  dimension recalculation
+  - Added container size recalculation after child sizing adjustments
+  - Added cross-axis extent recalculation after child relayout
+  - Enhanced flexbox margin behavior with comprehensive test cases [99b08a88c]
+
+**New Features**
+
+- Controller Creation Callbacks: Added callbacks to notify when a controller is created by WebF
+  widget, improving lifecycle
+  management. [cc53ddf23]
+
+Storage Enhancements
+
+- Shared Storage Cache: Implemented shared storage box cache for AsyncStorage and
+  LocalStorage [30d2b6339]
+  - Added Maps to cache box instances across the application
+  - Maintained shared instances between modules
+  - Improved cleanup in dispose methods
+
+**Other Changes**
+
+- Test Coverage: Added extensive CSS variable test specifications, improving test
+  coverage. [a4d2de1dd]
+- Documentation: Fixed changelog formatting. [cbe51803c]
+
+## 0.21.0-beta.6
+
+**iOS Native Integration**
+
+- Complete overhaul of iOS build system to use direct source compilation instead of pre-built
+  frameworks
+  - Integrated QuickJS source files directly in iOS build
+  - Added Gumbo Parser and modp_b64 libraries to iOS project
+  - Added Dart FFI support to iOS project
+  - Updated dynamic library loading for iOS using `DynamicLibrary.executable()`
+
+**WebF Package Publishing**
+
+- Added prepare_webf_package script for publishing
+- Added handling for dynamic libraries and C++ source files preparation
+- Added automated patching for CMakeLists.txt, app revision, and version
+
+**Router and Event Handling**
+
+- Delayed push and pushNext router change events to ensure firing after screen events in webf router
+  link element
+
+**Bug Fixes**
+
+- Fixed scheduleFrame() in the image element to ensure frame updates
+- Fixed _markChildrenTextNeedsLayout to use DOM tree instead of renderObject tree
+- Added checks for module disposal before modifying collections in WebSocketModule to prevent
+  ConcurrentModificationError
+- Fixed build scripts and integration test dependencies
+- Updated iOS code_gen include paths
+
+## 0.21.0-beta.5+3
+
+Image Loading Reliability
+
+- Added automatic fallback mechanism for failed image loads:
+  - Images that fail to load now automatically retry once after invalidating cache
+  - Prevents broken images due to corrupted cache files or temporary network issues
+  - Improved user experience by reducing instances of broken images
+
+Technical Improvements
+
+- Enhanced ImageElement with smart retry logic:
+  - Added tracking to prevent unnecessary multiple reload attempts
+  - Implemented forced cache eviction during reload attempts
+  - Images are properly cleared from Flutter's image cache during reload
+  - Built on top of existing HTTP cache invalidation mechanism
+
+Bug Fixes
+
+- Fixed case with border rendering in inline elements
+- Improved logic flow in LogicLineBox for better handling of nested inline elements
+- Fixed HTTP cache invalidation mechanism for consistent behavior across image and script loading
+
+## 0.21.0-beta.5+2
+
+**Features**
+
+Controller Management Improvements
+
+- Add timeout request limits for preload and prerendering to prevent hanging requests
+- Make addOrUpdateControllerWithLoading return null if the race condition fails, improving error
+  handling
+
+Performance Enhancements
+
+- Add timeline tracking for flex layout performance monitoring
+- Optimize concurrent request handling with race conditions
+- Upgrade web_socket_channel version to 3.0.1 for better WebSocket performance
+
+React.js Integration
+
+- Make input events compatible with React.js event system, improving framework integration
+- Enhanced synthetic event handling for better cross-framework support
+
+Bug Fixes
+
+Memory Management
+
+- Fix memory leaks with pending script promises by properly tracking promise lifecycle
+- Fix context check during release of alive script wrappable objects
+- Fix crash when disposing script promises by checking context availability
+- Fix crash when finalizing JavaScript runtime with canvas context
+
+Timeout and Request Handling
+
+- Fix parameters and annotations with timeout functionality
+- Improve error handling during concurrent controller operations
+- Add proper race condition resolution for multiple preload/prerendering requests
+
+Stability Improvements
+
+- Fix canvas rendering context finalization crash
+- Fix sticky position holder null error that caused layout issues
+- Implement more robust controller lifecycle management
+
+Other Changes
+
+- Move most of WebF pages to cold load in example app for better performance
+- Add test specifications for color change functionality
+- Improve code documentation and type annotations
+
+## 0.21.0-beta.5+1
+
+Features
+
+**Controller Lifecycle Management**
+
+- Fallback Mechanism: Added support for fallback to previous controller when concurrent requests
+  fail, ensuring uninterrupted user experience
+- Preload/Prerender Handling: Implemented race condition handling for multiple bundle operations,
+  optimizing performance for parallel requests
+- Auto-managed WebF Widgets: Added controller manager for automatic widget lifecycle management
+- Dynamic Controller Replacement: Support replacing WebFController instances for existing WebF
+  widgets
+
+**API Improvements**
+
+- Exception Handling: Enhanced error handling by throwing exceptions for failed preloading requests
+- Streamlined API: Merged addWithPreload and updateWithPreload methods into a single implementation
+- TypeScript Support: Added auto-generated typings with improved documentation
+
+Fixes
+
+**Stability Improvements**
+
+- Position Fixes: Fixed sticky position holder null error and temporarily disabled problematic
+  sticky position layouts
+- Navigation Fixes: Resolved hybrid router pop event issues when path is "/"
+- Preload API: Fixed addOrUpdateWithPreload API when applied to attached controllers
+
+**Other Improvements**
+
+- Test Reliability: Fixed integration test setup and execution
+- Example App: Updated example application configuration and added build scripts
+- Documentation: Enhanced API annotations for WebFControllerManager
+
+Chores
+
+- Package Renaming: Reorganized package structure for better clarity
+- Build Tools: Added example build scripts to streamline development workflow
+- Test Coverage: Added test specs for parallel request handling scenarios
+
+## 0.21.0-beta.5
+
+**New Features**
+
+- Added Inline Formatting Context support for improved text rendering and layout
+  - Introduces more accurate text layout with proper inline element handling
+  - Added line-join functionality for inline elements
+  - Implemented WebFTextPainter for enhanced text rendering performance
+  - Added TextSpan and LogicBox rendering support
+- Increased loadmore event frequency in WebFListView for smoother infinite scrolling experiences
+  - Reduced the delay between loadmore events from 1000ms to 500ms
+  - Improved user experience when scrolling through large lists
+
+**Performance Improvements**
+
+- Optimized text CSS style handling to prevent unnecessary renders
+- Enhanced text layout and rendering performance
+
+**Bug Fixes**
+
+- Removed unnecessary showcaseview dependency
+
+## 0.21.0-beta.4+5
+
+New Features
+
+- Added support for custom ListView components
+  - Includes both Material and Cupertino implementations
+  - Added to example application with demo page
+- Added support for ShowCaseView component
+  - Integrated showcase examples in the demo application
+- Added WebFControllerManager.instance.cancelUpdateOrLoadingIfNecessary API
+  - Allows canceling pending updates or loading operations
+
+Bug Fixes
+
+- Fixed issue where loading didn't properly request an animation frame
+- Fixed override default widget element functionality
+- Enhanced element registry system
+
+## 0.21.0-beta.4+4
+
+### Bug Fixes
+
+- Fix onScreen event on RouterLinkElement
+- Fix router change events
+- Fix did change metrics not updating viewport CSS values
+- Fix forEach element attached flutter state
+
+## 0.21.0-beta.4+3
+
+### Features
+
+- Support dashed border for single side
+- New implementation for gesture handling
+- Display error when widget loading fails
+
+### Bug Fixes
+
+- Fix min-height with parent fit-content
+- Fix offscreen event dispatch on hybrid router
+- Fix conversion of widget elements constraints to inner HTML Elements
+- Fix flex cross size affected by min-height
+- Fix min-height definition triggering flex item not to stretch
+- Fix painting order with multiple renderObject instances
+- Fix max constraint height inheritance in WebFWidgetElementChild
+- Fix Element.getBoundingClientRect in hybrid router mode
+
+## 0.21.0-beta.4+2
+
+### Features
+
+- Support fixed positioned layout both for overflow and <webf-listview /> without stacking context
+  support.
+
+### Bug Fixes
+
+- Fix recalculate style for connected node.
+- Fix change position value to static.
+- Fix put positioned elements in route link element.
+- Fix scrolling with fixed elements.
+- Fix rust integration test.
+
+### Tests
+-
+
+- Temporarily disable test specs with stacking context.
+- Add position fixed tests with router link specs.
+- Add position fixed listview specs.
+- Add position-fixed-comprehensive test specs.
+- Add position fixed click tests.
+- Fix rust integration tests.
+
+### Other Changes
+
+- Remove profile tracking.
+- Add flutter cupertino demo in react.js
+
+## 0.21.0-beta.4
+
+### Features
+
+- Add WebFTouchArea element to avoid SyntheticEvent side effects in React.js
+- Add NativeByteData for receiving bytes from JavaScript to Dart
+- Make webf.invokeModule accept multiple parameters
+- Use Completer for async returns for modules
+- Add helper functions in render style
+- Add controller.printDOMTree API for debugging
+- Make Cupertino slider code generator friendly
+- Optimize onscreen event priority for `<webf-router-path />` element
+- Optimize page loading to avoid rebuilding the whole widget tree
+- Optimize loading screen for already loaded pages
+- Optimize canvas needsPaint UI commands
+
+### Bug Fixes
+
+- Fix share demo and miracle plus share demo
+- Fix flex-item size with flex-basics
+- Fix mark parent needs relayout with RenderEventListener
+- Fix RenderEventListener stopping the mark needs layout
+- Fix minContentWidth and minContentHeight calculation in event listener
+- Fix localStorage.removeItem
+- Fix flex layout baseline computation affected by renderEventListener
+- Fix dump rendering snapshots on widget elements
+- Fix hit test for event listeners and box wrapper
+- Fix array buffer memory leaks when dispose the engine
+- Fix memory leaks due to ui command items
+- Fix widget element state disposed by add event listener on element
+- Fix event target gesture target mixed between main and hybrid route pages
+- Fix mark needs build for root WebFState
+- Fix WebF touch area default style
+- Fix height constraints from parent widget elements
+- Fix avoid repeat call needsPaint for canvas element
+
+### Other Changes
+
+- Enhance type definitions and interfaces across polyfill modules
+- Remove the profile tracking in layout and paint
+- Add NativeBytedata test specs
+- Add array buffer demo for testing
+
+## 0.21.0-beta.3+1
+
+### Features
+
+- feat: add WebFWidgetElementChild widget for pass outer constraints to inner HTMLElement child. (
+  3a71af271)
+- feat: add controller.printRenderObjectTree API. (c505040ea)
+- feat: add create component utils for react (3373d4481)
+
+### Bug Fixes
+
+- fix: fix flush pending properties order. (1fa7d3673)
+- fix: fix change font size in html element with rem values. (80495dd1f)
+- fix: fix FontsAndImages specs. (7878474fc)
+- fix: fix module test specs. (b15a2bef4)
+- fix: fix null check with image onload. (fa2d8a935)
+- fix: fix race condition for check shared ui command is empty. (998bbd7a1)
+
+## 0.21.0-beta.3
+
+## WebF Core
+
+### Features
+
+- Added support for dashed border style.
+- Added support for CSS logical properties in LTR mode.
+- Added support for custom listview element rendering behavior.
+- Added support for `requestIdleCallback`.
+- Added support for `Event.preventDefault`.
+
+**The CSS Logical properties supported in LTR mode**
+
+```
+1. Margin Properties
+
+- margin-inline-start → margin-left
+- margin-inline-end → margin-right
+- margin-block-start → margin-top
+- margin-block-end → margin-bottom
+
+2. Padding Properties
+
+- padding-inline-start → padding-left
+- padding-inline-end → padding-right
+- padding-block-start → padding-top
+- padding-block-end → padding-bottom
+
+3. Border Shorthand Properties
+
+- border-inline-start → border-left
+- border-inline-end → border-right
+- border-block-start → border-top
+- border-block-end → border-bottom
+
+4. Border Width Properties
+
+- border-inline-start-width → border-left-width
+- border-inline-end-width → border-right-width
+- border-block-start-width → border-top-width
+- border-block-end-width → border-bottom-width
+
+5. Border Style Properties
+
+- border-inline-start-style → border-left-style
+- border-inline-end-style → border-right-style
+- border-block-start-style → border-top-style
+- border-block-end-style → border-bottom-style
+
+6. Border Color Properties
+
+- border-inline-start-color → border-left-color
+- border-inline-end-color → border-right-color
+- border-block-start-color → border-top-color
+- border-block-end-color → border-bottom-color
+
+7. Inset/Position Properties
+
+- inset-inline-start → left
+- inset-inline-end → right
+- inset-block-start → top
+- inset-block-end → bottom
+```
+
+### Bug Fixes
+
+- Fixed dispatch of `didpush` and `didpushNext` hybridRouterChange events.
+- Fixed type errors in bridge polyfill.
+- Fixed `controller.currentBuildContext` error with `replaceState` on the hybrid router.
+- Fixed error when Flutter was not attached in the hybrid history API.
+- Fixed Android build issues.
+- Fixed gesture handling event target in router link.
+- Fixed viewport rendering on layout.
+- Fixed delay in controller disposal.
+
+### Other Changes
+
+- Refactored widget elements to use the new API pattern.
+- Using `flutter_svg` to render SVG images for `<img>` tags.
+
+---
+
+### The New Pattern for Writing a WidgetElement
+
+```dart
+class FlutterCupertinoActionSheet extends WidgetElement {
+  /// WidgetElement will live much longer than Flutter widgets
+  /// and have the same lifecycle as the corresponding HTMLElement in JavaScript.
+  /// When the element is removed by JavaScript, this element will be disposed.
+  @override
+  WebFWidgetElementState createState() {
+    return FlutterCupertinoActionSheetState(this);
+  }
+}
+
+// FlutterCupertinoActionSheetState is a subclass of Flutter's State class
+class FlutterCupertinoActionSheetState extends WebFWidgetElementState {
+  FlutterCupertinoActionSheetState(super.widgetElement);
+
+  @override
+  Widget build(BuildContext context) {
+    // This element itself doesn't render anything visible
+    return const SizedBox();
+  }
+// ..
+}
+```
+
+---
+
+### How to Customize `<webf-listview />`
+
+```dart
+WebF.overrideCustomElement
+('webf-listview
+'
+, (context) => CustomWebFListView(context));
+
+class CustomWebFListView extends WebFListViewElement {
+CustomWebFListView(super.context);
+
+@override
+WebFWidgetElementState createState() {
+return CustomListViewState(this);
+}
+}
+
+class CustomListViewState extends WebFListViewState {
+CustomListViewState(super.widgetElement);
+
+@override
+Widget buildLoadMore() {
+return widgetElement.hasEventListener('loadmore')
+? Container(
+height: 50,
+alignment: Alignment.center,
+child: isLoadingMore ? const CupertinoActivityIndicator() : const SizedBox.shrink(),
+)
+  : const SizedBox.shrink();
+}
+
+@override
+Widget buildRefreshControl() {
+return CupertinoSliverRefreshControl(
+onRefresh: () async {
+if (widgetElement.hasEventListener('refresh')) {
+widgetElement.dispatchEvent(dom.Event('refresh'));
+await Future.delayed(const Duration(seconds: 2));
+}
+},
+);
+}
+
+@override
+Widget buildRefreshIndicator(Widget scrollView) {
+return RefreshIndicator(
+onRefresh: () async {
+if (widgetElement.hasEventListener('refresh')) {
+widgetElement.dispatchEvent(dom.Event('refresh'));
+await Future.delayed(const Duration(seconds: 2));
+}
+},
+child: scrollView,
+);
+}
+
+@override
+void handleScroll() {
+double scrollPixels = scrollController?.position.pixels ?? 0;
+print('Scrolling... $scrollPixels');
+}
+
+@override
+bool hasRefreshIndicator() {
+return true;
+}
+}
+```
+
+---
+
+## Examples
+
+### Cupertino Components
+
+- Added `formRow` and `formSection` components.
+- Added `action-sheet` component.
+- Added `timer picker` component.
+- Added `radio` and `checkbox` components.
+- Added `cupertino-context-menu` and `slider` widget.
+- Fixed context menu demo.
+- Fixed button text color to use CSS variables.
+- Added CSS variables for Cupertino gallery.
+- Updated Cupertino button implementation and usage.
+- Added `textarea` demo page.
+
+### MiraclePlus Examples
+
+- Switched MiraclePlus to prerendering mode.
+- Fixed MiraclePlus demo.
+- Fixed toast pop error.
+
+### Hybrid Router
+
+- Added hybrid router template.
+- Added `initialRoute` parameter for hybrid router delegate.
+- Added ECharts playground.
+- Added `ListTile` and `ListSection` components.
+- Enhanced `FlutterListViewElement` with platform-specific refresh controls.
+- Added loading icon for loading more items.
+- Added support for the `share` method.
+
+## 0.21.0-beta.2
+
+## Core Features
+
+**WebF API**
+
+1. **Add WebFRouterView.fromControllerName API**
+   When used in the `onGenerateRoute` callback of Navigator, this API automatically manages the
+   lifecycle, including initialization, disposal, and displaying the loading widget. Users only need
+   to specify the controller name and customize the loading widget.
+
+   Example:
+   ```dart
+   Route<dynamic>? handleOnGenerateRoute(RouteSettings settings) {
+       return CupertinoPageRoute(
+         settings: settings,
+         builder: (context) {
+           return WebFRouterView.fromControllerName(
+               controllerName: webfPageName.value,
+               path: settings.name!,
+               builder: (context, controller) {
+                 return WebFSubView(controller: controller, path: settings.name!);
+               },
+               loadingWidget: _WebFDemoState.buildSplashScreen());
+         },
+       );
+   }
+   ```
+
+2. **Support for Updating WebF Controller by Name in WebFControllerManager**
+   For created WebFControllers with a name, users can update the controller and its rendering
+   content by calling `WebFControllerManager.instance.updateWithPreload` or
+   `WebFControllerManager.instance.updateWithPrerendering` to reinitialize and preload or prerender
+   with the same controller name.
+
+   Example:
+   ```dart
+   WebFControllerManager.instance.updateWithPreload(
+       createController: () => WebFController(
+             initialRoute: '/',
+             routeObserver: routeObserver,
+             devToolsService: kDebugMode ? ChromeDevToolsService() : null,
+           ),
+       name: 'html/css',
+       routes: {
+         '/todomvc': (context, controller) => WebFSubView(path: '/todomvc', controller: controller),
+         '/positioned_layout': (context, controller) =>
+             WebFSubView(path: '/positioned_layout', controller: controller),
+       },
+       bundle: WebFBundle.fromUrl('assets:///vue_project/dist/index.html'));
+   ```
+
+3. **Add WebFController.cookieManager for App-Level Cookie Management**
+4. Add `initialRoute` and `initialState` for the initialize hybrid route path and state when
+   initialize WebF.
+
+---
+
+**Hybrid Router**
+
+1. **Add Hybrid Router Change Event for `<webf-router-link />` Element**
+   You can now listen for the `hybridrouterchange` event in the `<webf-router-link />` element when
+   the hybrid router pushes in or pops back.
+
+   Example:
+   ```vue
+   <webf-router-link :path="path" @onscreen="onScreen" :title="title" @hybridrouterchange="onRouterChange">
+     <slot v-if="isMounted"></slot>
+   </webf-router-link>
+   ```
+
+   The `HybridRouterChangeEvent` provides the following properties:
+   ```typescript
+   interface HybridRouterChangeEvent extends Event {
+     readonly state: any; // The state object for the current path
+     readonly kind: string;
+     readonly path: string;
+     new(): HybridRouterChangeEvent;
+   }
+   ```
+
+   There are four kinds of `HybridRouterChangeEvent`:
+1. `didPopNext` – Called when the top route is popped off, and the current route shows up.
+2. `didPop` – Called when the current route is pushed.
+3. `didPush` – Called when the current route is popped off.
+5. `didPushNext` – Called when a new route is pushed, and the current route is no longer visible.
+
+2. **Fix WebF App Rebuild Triggered by Hybrid Router Push and Pop**
+3. **Fix hybridRouter.state When Pushing from Another Router Page**
+4. **Add More APIs for Hybrid Router**
+1. `pushNamed` – Push a named route onto the navigator that most tightly encloses the given context.
+2. `restorablePopAndPushNamed` – Restorably pop the current route and push a named route.
+3. `pushReplacementNamed` – Push a replacement named route.
+4. `canPop` – Whether the navigator can be popped.
+6. `maybePop` – Pop the top-most route off, only if it's not the last route.
+7. `popAndPushNamed` – Pop the current route off and push a named route in its place.
+8. `popUntil` – Pops until a route with the given name.
+9. `pushNamedAndRemoveUntil` – Push the route with the given name and remove routes until the named
+   route is reached.
+
+---
+
+**Layout**
+
+1. **Fix Flex Item Layout Size When Parent is a Flex Container and Overflows**
+2. **Fix Positioned Element Not Updating Offset Position When Scrolling**
+3. **Fix Replaced Element Intrinsic Layout Size as Flex Item**
+
+---
+
+**Gestures**
+
+1. **Fix Draggable Effect Demo Built with React.js Based on `ontouchstart` and `ontouchmove`
+   Gestures**
+   Demo
+   URL: [https://andycall.oss-cn-beijing.aliyuncs.com/demo/dragable-list.js](http://andycall.oss-cn-beijing.aliyuncs.com/demo/dragable-list.js)
+
+---
+
+**JS Runtime**
+
+1. **Fix Memory Leaks for Unresolved Promises**
+2. **Fix Null Pointer Crash for `removeEventListener`**
+
+---
+
+**Miracle Plus**
+
+1. **Add Skeleton Effect for Page Loading**
+2. **Support Dark Mode for All Pages**
+3. **Add Cupertino Library Gallery**
+
+---
+
+**Others**
+
+1. **Upgrade Hive Dependencies to `hive_ce@2.10.1`**
+
+## 0.21.0-beta.1
+
+**Bug Fixes**
+
+1. Fixed known issues during the Rendering Architecture Migration:
+1. Fixed `WebF.methodChannel` not being initialized.
+2. Reworked CSS overflow.
+3. Reworked CSS positioned layout.
+4. Reworked CSSOM API (`Element.offsetTop`, `Element.scrollTo`, etc.).
+5. Fixed margin collapse in various combination cases.
+6. Supported CSSOM API for `<webf-listview />`.
+2. Fixed CSS style inspection through Chrome DevTools.
+
+**Features**
+
+1. Added `webf.hybridRouter.path` and `webf.hybridRouter.replaceState` APIs.
+2. Added `onscreen` and `offscreen` events for all DOM elements.
+3. Added CSS stacking context support.
+4. Supported reloading WebF pages through Chrome DevTools.
+5. Supported overriding WebF modules.
+6. Supported initializing `WebFController` without any rendering context.
+7. Added `WebFControllerManager` to maintain the maximum number of alive and attached
+   `WebFController` instances.
+
+## 0.20.0
+
+Upgrade to enterprise version, which starts at 0.20.0 version.
+
++ Feat: Add support for fully async internal binding API.
++ Feat: Optimize the performance WidgetElement binding API.
++ Feat: Add MediaQuery and Dark mode support.
++ Feat: Redesigned Flutter Widget Adapter System.
++ Feat: Add Echarts.js with line char graph support.
+
+## 0.16.3+1
+
+Fixed compilation issues for Linux, Android, and Windows platforms.
+
+## 0.16.3
+
+This version supports Flutter 3.27.x, 3.24.x, 3.22.x, 3.19.x, 3.16.x, and 3.13.x.
+
+## Features
+
++ Optimize Dart/C++ FFI performance in multiple thread
+  mode. https://github.com/openwebf/webf/pull/654
++ Change viewport css property value automatically when app metrics
+  changed. https://github.com/openwebf/webf/pull/655
++ Optimize listview performance. https://github.com/openwebf/webf/pull/669
++ Full support of CanvasContext2D.Path2D. https://github.com/openwebf/webf/pull/684
++ Add WebFChildNodeSize widget. https://github.com/openwebf/webf/pull/690
++ Add console.inspect() API for inspecting JavaScript
+  Objects. https://github.com/openwebf/webf/pull/691
++ Using std::atomic value types for disposed checks of
+  NativeBindingObject. https://github.com/openwebf/webf/pull/699
++ Upgrade intl deps to 0.19.0. https://github.com/openwebf/webf/pull/701
+
+## Bug Fixed
+
++ Fix dart type error when attach flex layout underneath of Flutter
+  ListView. https://github.com/openwebf/webf/pull/650
++ Fix crash when clear ui commands without commands. https://github.com/openwebf/webf/pull/651
++ Fix onClick events respond very slowly on React 18. https://github.com/openwebf/webf/pull/665
++ Fix negative percentage translate in positioned
+  elements. https://github.com/openwebf/webf/pull/680
++ Fix ios simulator[arm64] build. https://github.com/openwebf/webf/pull/681
++ Fix globalToLocal coordinate conversion related to position fixed
+  layout. https://github.com/openwebf/webf/pull/686
++ Rework inline cache handling. https://github.com/openwebf/webf/pull/688
++ Fix crash when add property maybe failed on build
+  arguments. https://github.com/openwebf/webf/pull/689
+
+## Experimental Features
+
+### Rust/Native API
+
+**Have a Try**
+
+https://github.com/openwebf/webf/tree/main/webf/example/rust_builder/rust
+
+Provides support for native plugin APIs and offers corresponding Rust bindings.
+
+## 0.16.2
+
+This version supports Flutter 3.24.x, 3.22.x, 3.19.x, 3.16.x, and 3.13.x.
+
+**Features**
+
+1. Add flutter 3.24.x support. https://github.com/openwebf/webf/pull/644
+
+**Bug Fixed**
+
+1. Fix memory leaks in Flutter engineGroup mode. https://github.com/openwebf/webf/pull/629
+2. Fix rendering order when change css display:none to
+   block. https://github.com/openwebf/webf/pull/639
+
+## 0.16.1
+
+This version supports Flutter 3.22.x, 3.19.x, 3.16.x, and 3.13.x.
+
+**Features**
+
+1. Add support for AbortController JS API. https://github.com/openwebf/webf/pull/606
+2. Add flutter 3.22.x support. https://github.com/openwebf/webf/pull/624
+
+**Bug Fixed**
+
+1. Fix iOS FontFamilyFallback on -apple-system style, display error on Vietnamese
+   lang. https://github.com/openwebf/webf/pull/609
+2. Fix crash with unexpected format string on `window.btoa`
+   API. https://github.com/openwebf/webf/pull/615; https://github.com/openwebf/webf/pull/616
+
+## 0.16.0
+
+This version supports Flutter 3.19.x, 3.16.x, and 3.13.x.
+
+A version compatible with Flutter 3.10.x landed in **0.15.2**.
+A version compatible with Flutter 3.7.x landed in **0.14.4**.
+
+**Architecture Upgrade**
+
+The JavaScript Runtime has now migrated to a dedicated thread and is enabled by default in this
+version.
+
+For users who want to keep the single-threading mode the same as in the previous version, use the
+following configuration:
+
+```dart
+WebFController
+(
+context
+,
+runningThread
+:
+FlutterUIThread
+(
+)
+,
+);
+```
+
+**Big News**
+
+1. Added PreRendering and Preload loading modes, which can save up to 90% of loading time.
+   Click [here](https://openwebf.com/docs/tutorials/performance_optimization/prerendering_and_preload_mode)
+   for more details.
+
+**Features**
+
+1. Support preloadedBundles in WebF. https://github.com/openwebf/webf/pull/500
+2. Add pre-rendering and persistent rendering modes.  https://github.com/openwebf/webf/pull/501
+3. Optimize the evaluate times at the first time. https://github.com/openwebf/webf/pull/503
+4. Add MutationObserver API support. https://github.com/openwebf/webf/pull/508
+5. Add Dedicated Threading support.  https://github.com/openwebf/webf/pull/512
+6. Optimize raster performance on Animated images. https://github.com/openwebf/webf/pull/513
+7. Turn off quickjs GC at page loading phase.  https://github.com/openwebf/webf/pull/515
+8. Optimization matrix algorithm. https://github.com/openwebf/webf/pull/516
+9. Support override default contentType for WebFBundle. https://github.com/openwebf/webf/pull/534
+10. Support dns-prefetch. https://github.com/openwebf/webf/pull/535
+11. Add more SVG tags. https://github.com/openwebf/webf/pull/543
+12. Optimize MutationObserver performance. https://github.com/openwebf/webf/pull/545
+13. QuickJS add property inline cache. https://github.com/openwebf/webf/pull/546
+14. Optimize paint and add profile records. https://github.com/openwebf/webf/pull/547
+15. Pause the activity of webf when app visibility
+    changed. https://github.com/openwebf/webf/pull/549
+16. Optimize bytecode cache load speed and fix http cache. https://github.com/openwebf/webf/pull/552
+17. Add Element.parentElement support. https://github.com/openwebf/webf/pull/555
+18. Add repaintBoundary for animated images when using css
+    background-images https://github.com/openwebf/webf/pull/557
+19. Add support for hash router https://github.com/openwebf/webf/pull/572
+20. Add support for object event listener. https://github.com/openwebf/webf/pull/575
+21. Optimize performance for recalculate styles https://github.com/openwebf/webf/pull/579
+
+**Bug Fixed**
+
+1. Fix class selector not match on html element. https://github.com/openwebf/webf/pull/490
+2. Fix concurrent modification during iteration. https://github.com/openwebf/webf/pull/491
+3. Fix JavaScript stack overflow error when print Proxy
+   object. https://github.com/openwebf/webf/pull/493
+4. Fix borderXxxRadius transition. https://github.com/openwebf/webf/pull/495
+5. Avoid Hive.init cause conflicts with box paths. https://github.com/openwebf/webf/pull/504
+6. Fix assertion error when change display in input
+   element. https://github.com/openwebf/webf/pull/505
+7. Fix lenght variable issue. https://github.com/openwebf/webf/pull/510
+8. Fix transform value not updated in percentage when box size
+   changed. https://github.com/openwebf/webf/pull/514
+9. Fix crashed due to trigger touch events to inaccessible dom
+   elements. https://github.com/openwebf/webf/pull/517
+10. Fix crash due to init touchEvent from JS. https://github.com/openwebf/webf/pull/518
+11. Fix event.target still can be pointed by event after finalized by JavaScript
+    GC. https://github.com/openwebf/webf/pull/519
+12. Fix flex-grow not work. https://github.com/openwebf/webf/pull/524
+13. Fix bg_image_update not update error. https://github.com/openwebf/webf/pull/526
+14. Fix text calculate constraints error. https://github.com/openwebf/webf/pull/527
+15. Fix min precision case some error and waste cpu. https://github.com/openwebf/webf/pull/528
+16. Fix sliver layout child boundingClientRect offset
+    error. https://github.com/openwebf/webf/pull/530
+17. Fix build on ArchLinux. https://github.com/openwebf/webf/pull/536
+18. Fix devtool select img element. https://github.com/openwebf/webf/pull/538
+19. Fix ui command exec order in dedicated thread mode. https://github.com/openwebf/webf/pull/540
+20. Fix img gif work error. https://github.com/openwebf/webf/pull/541
+21. Fix request flutter to update frame when sync commands to
+    dart. https://github.com/openwebf/webf/pull/548
+22. Fix textarea elements in ios/android can not auto
+    unfocus. https://github.com/openwebf/webf/pull/551
+23. Fix crash when binding object had been released by GC. https://github.com/openwebf/webf/pull/553
+24. Fix windows platform crash with 0.16.0. https://github.com/openwebf/webf/pull/558
+25. Fix page load failed when using async attributes in `<script />`
+    elements. https://github.com/openwebf/webf/pull/561
+26. Fix dart element memory leaks when js gc collected. https://github.com/openwebf/webf/pull/563
+27. Fix crash on flutter engine dispose. https://github.com/openwebf/webf/pull/566
+28. Fix background-image disappear with multiple image
+    links. https://github.com/openwebf/webf/pull/574
+29. Fix js log does not show in terrminal and devtools. https://github.com/openwebf/webf/pull/584
+30. Fix mem leaks caused by event dispatch. https://github.com/openwebf/webf/pull/585
+31. Fix input when resume apps https://github.com/openwebf/webf/pull/589
+32. Fix memory leak caused by img element https://github.com/openwebf/webf/pull/590
+33. Fix input elements or widget elements when preload or prerendering
+    complete. https://github.com/openwebf/webf/pull/595
+34. Fix animation time resume. https://github.com/openwebf/webf/pull/597
+35. Fix invalid xcframework for ios release. https://github.com/openwebf/webf/pull/600
+
+## 0.15.1
+
+This version will support Flutter 3.10.x
+
+**Features**
+
+1. Optimize location API for better performance results. https://github.com/openwebf/webf/pull/420
+2. Optimize the webf_bridge and quickjs binary size. https://github.com/openwebf/webf/pull/414
+3. Support CSS initial length value. https://github.com/openwebf/webf/pull/421
+4. Optimize Element.children() and Document.all()
+   performance. https://github.com/openwebf/webf/pull/424
+5. Support element <line> for svg. https://github.com/openwebf/webf/pull/475
+6. Add WebFController.onTitleChanged API. https://github.com/openwebf/webf/pull/479
+
+**Bug Fixed**
+
+1. Fix percentage width and height not working under inline block
+   box. https://github.com/openwebf/webf/pull/430
+2. Fix Node.insertBefore with SVGElement error. https://github.com/openwebf/webf/pull/431
+3. Fix cookie delete file error when it's not available. https://github.com/openwebf/webf/pull/429
+4. Fix use css vars with
+   initial. https://github.com/openwebf/webf/pull/421/commits/1da2e5899c53e82a31271c26de3333168e780134
+   0.15.0-beta.3
+5. Fix toggle position: fixed on bodyElement with other fixed
+   elements. https://github.com/openwebf/webf/pull/416
+6. Fix css nth-child not work. https://github.com/openwebf/webf/pull/417
+7. Fix Node.childNodes didn't update when nodes changed. https://github.com/openwebf/webf/pull/419
+8. Fix loading fonts cause assertion when remove or attach
+   RenderObjects. https://github.com/openwebf/webf/pull/425
+9. fix crash when reload pages. https://github.com/openwebf/webf/pull/476
+10. Fix memory leaks. https://github.com/openwebf/webf/pull/487
+
+## 0.15.0
+
+This version will support Flutter 3.10.x
+
+**Break Changes**
+
+1. Remove `navigator.connection` API. https://github.com/openwebf/webf/pull/411
+
+**Features**
+
+1. Upgrade Flutter support to 3.10.x. https://github.com/openwebf/webf/pull/345
+2. Optimize location API for better performance results. https://github.com/openwebf/webf/pull/420
+3. Optimize the size of webf_bridge.xcframework and
+   quickjs.xcframework. https://github.com/openwebf/webf/pull/414
+4. Support CSS initial length value. https://github.com/openwebf/webf/pull/421
+5. Optimize Element.children() and Document.all()
+   performance. https://github.com/openwebf/webf/pull/424
+6. Support base64 format font data in `@font-face` src. https://github.com/openwebf/webf/pull/399
+7. Support Element.dir API. https://github.com/openwebf/webf/pull/418
+8. Add `<circle />` and `<ellipse>` tags for SVG. https://github.com/openwebf/webf/pull/423
+9. Support share customized JS properties in event object. https://github.com/openwebf/webf/pull/427
+10. Support `window.pageXOffset` and `window.pageYOffset`
+    API. https://github.com/openwebf/webf/pull/428/files
+11. Optimize layout/paint performance when block box size is
+    fixed. https://github.com/openwebf/webf/pull/450
+12. Optimize performance when update Element.className.  https://github.com/openwebf/webf/pull/452
+13. Support CanvasRenderingContext2D.createPattern() API. https://github.com/openwebf/webf/pull/464
+
+**Bug Fixed**
+
+1. Fix use css vars with initial. https://github.com/openwebf/webf/pull/421
+2. Fix toggle position: fixed on bodyElement with other fixed
+   elements. https://github.com/openwebf/webf/pull/416
+3. Fss nth-child not work. https://github.com/openwebf/webf/pull/417
+4. Fix Node.childNodes didn't update when nodes changed. https://github.com/openwebf/webf/pull/419
+5. Fix loading fonts cause assertion when remove or attach
+   RenderObjects. https://github.com/openwebf/webf/pull/425
+6. Fix percentage width and height not working under inline block
+   box. https://github.com/openwebf/webf/pull/430
+7. Fix Node.insertBefore with SVGElement error. https://github.com/openwebf/webf/pull/431
+8. Fix cookie delete file error when it's not available. https://github.com/openwebf/webf/pull/429
+9. Fix read ANDROID_SDK_HOME before implying to platform
+   defaults. https://github.com/openwebf/webf/pull/422
+10. Fix cookie delete file error.  https://github.com/openwebf/webf/pull/429
+11. Fix percentage width and height not working under inline block
+    box. https://github.com/openwebf/webf/pull/430
+12. Fix Node.insertBefore with SVGElement error. https://github.com/openwebf/webf/pull/431
+13. Fix DevTool's network panel not working. https://github.com/openwebf/webf/pull/435
+14. Losen intl dependency constraint. https://github.com/openwebf/webf/pull/439
+15. Fix built-in methods in the event object cannot be
+    overridden. https://github.com/openwebf/webf/pull/443
+16. Fix crash when touching pseduo elements.  https://github.com/openwebf/webf/pull/445
+17. Fix event not responding when multiple flutter engine
+    created. https://github.com/openwebf/webf/pull/451
+18. Fix Element.style.cssText API not works. https://github.com/openwebf/webf/pull/455
+19. Fix use-of-free crash of shared string property in event
+    object. https://github.com/openwebf/webf/pull/458
+20. Fix dynamic build items in WidgetElement. https://github.com/openwebf/webf/pull/461
+21. Fix CSS content property have sequences of unicode
+    chars. https://github.com/openwebf/webf/pull/463
+22. Fix crash when create unsupported svg element with
+    style. https://github.com/openwebf/webf/pull/465
+
+## 0.14.1
+
+**Features**
+
+1. Add CSS @font-face support. https://github.com/openwebf/webf/pull/380
+2. Support ::before/::after selector. https://github.com/openwebf/webf/pull/332
+3. Add document.elementFromPoint API. https://github.com/openwebf/webf/pull/381
+4. Support set textContent on textArea elements. https://github.com/openwebf/webf/pull/369
+5. Support receive binary data from fetch and
+   XMLHttpRequest. https://github.com/openwebf/webf/pull/397
+6. Add support for event capture phases. https://github.com/openwebf/webf/pull/404
+7. Support change the current animation stage for transition
+   animations. https://github.com/openwebf/webf/pull/401
+8. Add CSSStyleDeclaration.cssText support. https://github.com/openwebf/webf/pull/410
+9. Move the webf_websocket plugin into webf. https://github.com/openwebf/webf/pull/398
+
+**Bug Fixed**
+
+1. Fix error when setting display:none for input and
+   textarea. https://github.com/openwebf/webf/pull/369
+2. Fix focus state didn't cleared when input unmount from the DOM
+   Tree. https://github.com/openwebf/webf/pull/369
+3. Fix defaultStyle for textarea elements. https://github.com/openwebf/webf/pull/369
+4. Fix a crash when a JSObject was finalized after the ExecutingContext was
+   freed. https://github.com/openwebf/webf/pull/372
+5. Fix a crash when ExecutingContext is not alive at timer
+   callbacks. https://github.com/openwebf/webf/pull/373
+6. Fix a crashed when running in multiple flutter engine
+   instance. https://github.com/openwebf/webf/pull/377
+7. Fix the size of the input is wrong when using a unit other than
+   px. https://github.com/openwebf/webf/pull/378
+8. Fix crashed when shutdown the app. https://github.com/openwebf/webf/pull/383
+9. Fix Resource temporarily unavailable for Hive lock
+   file. https://github.com/openwebf/webf/pull/387
+10. Fix a memory leaks in TouchList. https://github.com/openwebf/webf/pull/388
+11. Fix match error for animation time. https://github.com/openwebf/webf/pull/390/files
+12. Fix built-in string initialized multiples and cause
+    leaks.  https://github.com/openwebf/webf/pull/391
+13. Fix constructor property on DOM elements. https://github.com/openwebf/webf/pull/402
+
+## 0.14.0
+
+**Big News**
+
+1. Add Flutter 3.3/3.7 support. https://github.com/openwebf/webf/pull/246
+2. Add SVG suppport. https://github.com/openwebf/webf/pull/279
+3. Add Windows support. https://github.com/openwebf/webf/pull/162
+4. Add multiple flutter engine group support. https://github.com/openwebf/webf/pull/338
+
+**Features**
+
+2. Support transform property for computedstyle. https://github.com/openwebf/webf/pull/245
+3. Add `btoa()` and `atob()` API support. https://github.com/openwebf/webf/pull/253
+4. Add Vue SSR support. https://github.com/openwebf/webf/pull/256
+5. Replace malloc to mimalloc. https://github.com/openwebf/webf/pull/267
+6. Add CanvasRenderingContext2D.createLinearGradients and
+   CanvasRenderingContext2D.createRadialGradient support. https://github.com/openwebf/webf/pull/269
+7. Optimize Fetch() API performance. https://github.com/openwebf/webf/pull/287
+8. Add Blob.base64() to export base64 string from Blob
+   directly. https://github.com/openwebf/webf/pull/278
+9. Expand quickjs default prop size and realloc capacity. https://github.com/openwebf/webf/pull/270
+10. Add context API for WidgetElement. https://github.com/openwebf/webf/pull/264
+11. Add kbc file type support for script element. https://github.com/openwebf/webf/pull/250
+12. Support react.js without any polyfill. https://github.com/openwebf/webf/pull/257
+13. Auto cache parsed bytecode for the first load. https://github.com/openwebf/webf/pull/280
+14. Invalidate cache when expect Http request errors https://github.com/openwebf/webf/pull/305
+15. Optimize dart dom and CSS selector performance. https://github.com/openwebf/webf/pull/309
+16. Support background-clip text. https://github.com/openwebf/webf/pull/318
+17. Remove ios armv7 armv7s support. https://github.com/openwebf/webf/pull/331
+18. Add DOMContentLoaded API. https://github.com/openwebf/webf/pull/330
+19. Optimize image load performance. https://github.com/openwebf/webf/pull/335
+20. Validate bytecode cache with CRC32 checksum. https://github.com/openwebf/webf/pull/336
+21. Add Element.querySelectorAll and Element.querySelector
+    API. https://github.com/openwebf/webf/pull/342
+22. Support document.domain and document.compatMode. https://github.com/openwebf/webf/pull/343
+23. Support document.readyState. https://github.com/openwebf/webf/pull/347
+24. Add localStorage and sessionStorage support. https://github.com/openwebf/webf/pull/344
+25. Support document.visibilityState and document.hidden.  https://github.com/openwebf/webf/pull/350
+26. Add document.defaultView API. https://github.com/openwebf/webf/pull/346
+27. Add support for Element.dataset API. https://github.com/openwebf/webf/pull/348
+28. Add Element.matches API.  https://github.com/openwebf/webf/pull/365
+29. Add append() and prepend() support for Element, Document and
+    DocumentElement. https://github.com/openwebf/webf/pull/361
+30. Add before() and after() support for Element and
+    CharaterData. https://github.com/openwebf/webf/pull/361
+31. Add Element.closest API. https://github.com/openwebf/webf/pull/364
+32. Add HTMLScriptElement.readyState API. https://github.com/openwebf/webf/pull/367
+
+**Bug Fixed**
+
+1. fix: fix pan scroll on desktop versions. https://github.com/openwebf/webf/pull/248
+2. fix: canvas should clip overflowed element. https://github.com/openwebf/webf/pull/263
+3. fix: ic should use none instead of atom flag and free it to prevent double
+   delete. https://github.com/openwebf/webf/pull/277
+4. fix: pending promise crash for early gc and add lto to
+   quickjs. https://github.com/openwebf/webf/pull/283
+5. fix update className property on hidden element. https://github.com/openwebf/webf/pull/255
+6. fix bytecode read should free atom to prevent leak. https://github.com/openwebf/webf/pull/285
+7. fix empty src on image. https://github.com/openwebf/webf/pull/286
+8. fix <img /> can not be GC even if it's detached or removed from the DOM
+   tree. https://github.com/openwebf/webf/pull/291
+9. fix change size of canvas element didn't works. https://github.com/openwebf/webf/pull/276
+10. fix: ic free atom crash when ctx early free. https://github.com/openwebf/webf/pull/293
+11. fix: fix script execution order with inline script
+    element. https://github.com/openwebf/webf/pull/273
+12. fix css function resolve base url. https://github.com/openwebf/webf/pull/282
+13. fix: rules didn't match which start with undefine
+    at-rules. https://github.com/openwebf/webf/pull/294
+14. fix: fix child_node_list can be null.  https://github.com/openwebf/webf/pull/297
+15. fix native memory leaks. https://github.com/openwebf/webf/pull/292
+16. fix renderObject memory leaks. https://github.com/openwebf/webf/pull/298
+17. fix dom content loaded event trigger condition. https://github.com/openwebf/webf/pull/274
+18. fix Element.toBlob() is not default to current
+    pixel_ratio. https://github.com/openwebf/webf/pull/306
+19. fix scrollable size when update. https://github.com/openwebf/webf/pull/301
+20. fix layout error when using percentage value on
+    transform. https://github.com/openwebf/webf/pull/307
+21. fix: css priority error. https://github.com/openwebf/webf/pull/310
+22. fix atob empty string cause crash. https://github.com/openwebf/webf/pull/311
+23. fix canvas element get multiple context error. https://github.com/openwebf/webf/pull/312
+24. fix http cache control parse error. https://github.com/openwebf/webf/pull/313
+25. fix image width/height attribute. https://github.com/openwebf/webf/pull/315
+26. fix crash when cancelAnimationFrame in frame
+    callbacks. https://github.com/openwebf/webf/pull/317
+27. fix style didn't take effect and offsetLeftToScrollContainer value is calculated
+    incorrectly. https://github.com/openwebf/webf/pull/322
+28. fix GIF images cause rendering performance overhead. https://github.com/openwebf/webf/pull/325
+29. fix: remove flushLayout when reading contentSize. https://github.com/openwebf/webf/pull/326
+30. fix setting lazy loading for an image didn't work. https://github.com/openwebf/webf/pull/328
+31. fix remounting widgetElement in the same frame to the DOM tree causes renderWidgets to be
+    unmounted from the renderObject tree. https://github.com/openwebf/webf/pull/329
+32. fix: make sure renderObject had been layout before read view module
+    properties. https://github.com/openwebf/webf/pull/333
+33. fix: protect DOMTimers until the ExecutingContext
+    exits. https://github.com/openwebf/webf/pull/334
+34. fix reading target property on Touch caused crash. https://github.com/openwebf/webf/pull/340
+35. fix css vars() and calc() in some user cases. https://github.com/openwebf/webf/pull/355
+36. fix template element's content property cause mem
+    leaks. https://github.com/openwebf/webf/pull/349
+
+## 0.14.0-beta.1
+
+* Support flutter 3.3.10/3.7.3
+
+## 0.13.3
+
+**Features**
+
+* Add Self Poly Inline Cache for quickjs. https://github.com/openwebf/webf/pull/227
+  | | master | feat/ic | |
+  | ----------------- | ------ | ------- | ------ |
+  | Richards | 752 | 888 | +18.0% |
+  | Crypto | 618 | 713 | +15.3% |
+  | RayTrace | 807 | 833 | +3.2% |
+  | NavierStokes | 1497 | 1319 | -11.8% |
+  | DeltaBlue | 744 | 845 | +13.5% |
+  | Score (version 7) | 841 | 890 | +5.5% |
+* Add window.getComputedStyle support. https://github.com/openwebf/webf/pull/183
+* Add namespace API. https://github.com/openwebf/webf/pull/126
+* The performance of `display: sliver` had been improved. https://github.com/openwebf/webf/pull/225
+
+**Bug Fixed**
+
+* fix: fix history pushState() API. https://github.com/openwebf/webf/pull/218
+* fix: Input use leading to support line-height. https://github.com/openwebf/webf/pull/173
+* fix: fix widget element unmount renderObject. https://github.com/openwebf/webf/pull/221
+* fix: fix scrollable content not work when toggle
+  display. https://github.com/openwebf/webf/pull/220
+* fix: fix set background color on body element. https://github.com/openwebf/webf/pull/130
+* fix: fix renderObject didn't disposed when frame update
+  paused. https://github.com/openwebf/webf/pull/231
+* fix: fix assertion when webf disposed. https://github.com/openwebf/webf/pull/228
+* fix: fix CSS calc value become zero when parameter kind are
+  same. https://github.com/openwebf/webf/issues/234
+* fix: Query computed style for kebabize property name. https://github.com/openwebf/webf/pull/239
+* fix: fix build error on M1 iOS simulator. https://github.com/openwebf/webf/pull/238
+* fix: fix set max-height on scroller box. https://github.com/openwebf/webf/pull/216
+* fix: fix animation transform have no effect when value are rotate(
+  360deg). https://github.com/openwebf/webf/pull/184
+
+## 0.13.2+1
+
+* remove logs
+
+## 0.13.2
+
+**Features**
+
+* Add Element.classList API support. https://github.com/openwebf/webf/pull/196
+* Add RemoteDevServerService() for remote debugging. https://github.com/openwebf/webf/pull/198
+
+**Bug Fixed**
+
+* Fix fix call binding methods on proxies objects. https://github.com/openwebf/webf/pull/193
+* Fix input have default content padding. https://github.com/openwebf/webf/pull/194
+* Fix history.back() cause page reload. https://github.com/openwebf/webf/pull/195
+* Fix location.href never changed. https://github.com/openwebf/webf/pull/195
+* Fix CommentNode always return empty string of nodeValue. https://github.com/openwebf/webf/pull/197
+* Fix fix img width become infinity when not
+  attached. https://github.com/openwebf/webf/pull/200/files
+* Fix unconstrained inline-block can't calculate content box
+  size. https://github.com/openwebf/webf/pull/201
+* Fix positioned elements should be reapply when toggle
+  display. https://github.com/openwebf/webf/pull/202
+* Fix replaced element didn't render with toggle display. https://github.com/openwebf/webf/pull/203
+* Fix view module value changed by scroll offset. https://github.com/openwebf/webf/pull/207
+* Fix initializeCookie API when twice load. https://github.com/openwebf/webf/pull/208
+* Fix gesture conflict on Android devices. https://github.com/openwebf/webf/pull/210
+
+## 0.13.2-beta.2
+
+* Fix location.href didn't get changed when history changes.
+
+## 0.13.2-beta.1
+
+* fix page reload when history.back().
+
+## 0.13.1
+
+**Bug Fixed**
+
+1. Fix renderBoxModel is null cause performLayout error. https://github.com/openwebf/webf/pull/187
+2. Fix position absolute cause mistake overflow. https://github.com/openwebf/webf/pull/167
+3. Fix var in keyframes not work. https://github.com/openwebf/webf/issues/147
+4. Fix var in translate not work. https://github.com/openwebf/webf/issues/154
+5. Fix unexpected token in linear-graident. https://github.com/openwebf/webf/issues/119
+6. Fix tag element selector. https://github.com/openwebf/webf/issues/169
+7. Fix var attribute dynamic modification exception. https://github.com/openwebf/webf/issues/144
+
+**Feature**
+
+1. Add `initialCookies` params on WebF widget. https://github.com/openwebf/webf/pull/186
+
+## 0.13.0
+
+The biggest update since the `webf/kraken` release.
+
+1. The DOM API and C++ bindings had been redesigned and
+   refactored.  https://github.com/openwebf/webf/pull/18
+1. DOM node operations methods such as `Node.appendChild` and `Node.insertBefore` are 2x - 5x
+   faster than 0.12.0.
+2. The new C++ bindings system can keep the bridge code safer to avoid crashes.
+2. Add CSS StyleSheets support.  https://github.com/openwebf/webf/pull/11
+1. Support load CSS with  `<link />` element.
+2. Support load CSS with `<style />` element.
+4. Flutter Widgets System had been redesigned and refactored, now all flutter widgets can be used to
+   define your HTMLElements, including from Flutter material design, pub.dev, and
+   yours. https://github.com/openwebf/webf/pull/58
+5. Add CSS animation support. https://github.com/openwebf/webf/pull/41
+6. Sync the latest features from quickjs offical. https://github.com/openwebf/webf/pull/165
+
+Others:
+
+## Features
+
++ Add cookie support. https://github.com/openwebf/webf/pull/65
++ Add Quickjs column number support.  https://github.com/openwebf/webf/pull/116
++ Support return value from `webf. invokeModule` API. https://github.com/openwebf/webf/pull/54
+
+  **Upgrade from 0.12.0**
+
+  This feature could lead to the following error if you using `web.addWebfModuleListener` API in
+  0.12.0.
+  ```
+  TypeError: Failed to execute '__webf_add_module_listener__' : 2 argument required, but 1 present.
+          at __webf_add_module_listener__ (native)
+          at <anonymous> (internal://:127)
+          at <eval> (internal://:135)
+  ```
+
+  Please add the target module name to the first arguments:
+
+  **before**
+    ```javascript
+    webf.addWebfModuleListener(function(moduleName, event, data) {
+      if (moduleName == 'AlarmClock') {
+         // ...
+      }
+    });
+    ```
+
+  **After**
+    ```javascript
+    webf.addWebfModuleListener('AlarmClock', function(event, data) {
+     // ...
+    });
+    ```
+
+**Bug Fixed**
+
++ CSS `hsl()` not works. https://github.com/openwebf/webf/issues/23
++ flex:1 failed when the parent node style has minHeight/minWidth
+  property. https://github.com/openwebf/webf/pull/28
++ Fix overflow not works with transform. https://github.com/openwebf/webf/pull/48
++ Fix memory leaks caused by CSSLengthValue and
+  ModuleManager. https://github.com/openwebf/webf/pull/57
++ Fix animation shaking when controlling the animation with touch
+  events. https://github.com/openwebf/webf/pull/67
++ Fix webf_bridge.xcframework and quickjs.xcframework did not product when run
+  `flutter build ios-frameworks` command. https://github.com/openwebf/webf/pull/71
++ Fix dynamic library not found in some android devices. https://github.com/openwebf/webf/pull/91
++ Fix position and transform to cause a more scrollable
+  area. https://github.com/openwebf/webf/issues/112
++ Fix the size of HTMLElement is not always equal to the
+  viewport. https://github.com/openwebf/webf/pull/122
++ Fix collapsedMarginBottom seems work incorrectly. https://github.com/openwebf/webf/issues/132
++ Fix opacity after transform not work. https://github.com/openwebf/webf/issues/142
++ Fix set attribute with CSS vars not work. https://github.com/openwebf/webf/pull/155
+
+## 0.13.0-beta.9
+
+* fix input border style.
+
+## 0.13.0-beta.8
+
+* fix macOS arm64 build error.
+
+## 0.13.0-beta.7
+
+* fix github action ndk path.
+
+## 0.13.0-beta.6
+
+* downgrade android NDK version requirement to r22b.
+
+## 0.13.0-beta.5
+
+* fix: request body should be UTF-8 encoded string.
+* fix: fix onLoad didn't not trigger when reload.
+* fix: fix rendering empty if window size is not ready.
+* fix: should dispose webf managed renderObject after flutter framework does.
+
+## 0.13.0-beta.4
+
+* Test for new custom elements system.
+
+## 0.13.0-beta.3
+
+* Fix reload crash.
+
+## 0.13.0-beta.2
+
+* Test for new bridge and css selector.
+
+## 0.12.0+2
+
+**Bug Fixed**
+
+* Add Flutter version requirement at pubspec.yaml.
+
+## 0.12.0+1
+
+**Bug Fixed**
+
+* Fix Apple silicon platform build error.
+
+## 0.12.0
+
+**Big News**
+
+* Set flutter version requirement to v3.0.5.
+
+**Bug Fixed**
+
++ Fix devtools select dom position offset. https://github.com/openkraken/kraken/pull/1289
++ Fix the white-flash of canvas painting. https://github.com/openkraken/kraken/pull/1317
++ Fix the memory leak of animation timeline
+  lifecycle. https://github.com/openkraken/kraken/pull/1312
++ Fix request failed while response was gzipped. https://github.com/openkraken/kraken/pull/1302
++ Fix exception in paragraph paint in some edge
+  cases. https://github.com/openkraken/kraken/pull/1334
++ Fix flex-basis with percentage not working. https://github.com/openkraken/kraken/pull/1300
++ Fix memory leak when dispatch gesture events. https://github.com/openkraken/kraken/pull/1333
++ Fix negative margin value. https://github.com/openkraken/kraken/pull/1308
++ Fix margin auto value. https://github.com/openkraken/kraken/pull/1331
++ Fix JS error report twice. https://github.com/openkraken/kraken/pull/1337
++ Fix event concurrent exception. https://github.com/openkraken/kraken/pull/1354
++ Fix text white space collapse. https://github.com/openkraken/kraken/pull/1352
++ Fix inline replaced element layout size. https://github.com/openkraken/kraken/pull/1343
++ Fix event listener remove when call
+  removeEventListener. https://github.com/openkraken/kraken/pull/1357/files
++ Fix error of textNode when attach to WidgetElement. https://github.com/openkraken/kraken/pull/1336
++ Fix null safety error when handle pointer events. https://github.com/openkraken/kraken/pull/1360
++ Fix script element with async attribute error. https://github.com/openkraken/kraken/pull/1358
++ Fix event handlers removal with once time. https://github.com/openkraken/kraken/pull/1359
++ Fix text not wrap in flex container of column
+  direction. https://github.com/openkraken/kraken/pull/1356
++ Fix the sliver with positioned element usage
+  problem. https://github.com/openkraken/kraken/pull/1341
++ Fix set overflow on body can still scroll. https://github.com/openkraken/kraken/pull/1366
++ Fix positioned element offset when containing block has
+  transform. https://github.com/openkraken/kraken/pull/1368
++ Fix replaced flex item size. https://github.com/openkraken/kraken/pull/1338
++ Fix memory usage of img element. https://github.com/openkraken/kraken/pull/1347
++ Fix position: fixed elements hittest not correct. https://github.com/openkraken/kraken/pull/1374
++ Fix html scroll value. https://github.com/openkraken/kraken/pull/1367
++ Fix custom element widget unmount. https://github.com/openkraken/kraken/pull/1375
++ Fix the null value for CSS content-visibility and
+  position. https://github.com/openkraken/kraken/pull/1389
++ Fix custom element item layout. https://github.com/openkraken/kraken/pull/1392
++ Fix script elements sync load order. https://github.com/openkraken/kraken/pull/1405
++ Fix element.style property match. https://github.com/openkraken/kraken/pull/1410
++ Fix viewport dispose twice. https://github.com/openkraken/kraken/pull/1404
++ Fix localToGlobal on silver container. https://github.com/openkraken/kraken/pull/1421
++ Fix add PointerDeviceKind on scrollable. https://github.com/openkraken/kraken/pull/1439
++ Fix add new child of sliver container. https://github.com/openkraken/kraken/pull/1412
++ Fix stylesheet can not load with link elements. https://github.com/openkraken/kraken/pull/1441
++ Fix not support relative protocol. https://github.com/openkraken/kraken/pull/1444
+
+**Features**
+
++ Add reset for canvas rendering context 2d. https://github.com/openkraken/kraken/pull/1310
++ Add temporary Console panel at Chrome DevTools. https://github.com/openkraken/kraken/pull/1328
++ Add built-in attributes for event handlers. https://github.com/openkraken/kraken/pull/1330
++ Add document.getElementsByName API. https://github.com/openkraken/kraken/pull/1383
++ Add absolute-size & relative-size keywords of
+  font-size. https://github.com/openkraken/kraken/pull/1430
++ Add scroll support of input、textarea、sliver with mouse wheel when setting
+  overflow. https://github.com/openkraken/kraken/pull/1438
+
+## 0.11.0
+
+**Breaking Changes**
+
++ Update flutter requirement to 2.8.x https://github.com/openkraken/kraken/pull/1298
+
+**Bug Fixed**
+
+- Fix Kraken widget instance memory leak from window. https://github.com/openkraken/kraken/pull/1297
+
+## 0.10.4
+
+**Features**
+
++ Support window.innerWidth & window.innerHeight, and screen.availWidth &
+  screen.availHeight. https://github.com/openkraken/kraken/pull/1256
+
+**Bug Fixed**
+
++ Fix error when using KrakenBundle.fromByteCode(). https://github.com/openkraken/kraken/pull/1245
++ Fix DataBundle string with non latin. https://github.com/openkraken/kraken/pull/1263
+
+** Others **
+
++ Change copyright to `The Kraken authors`.
+
+## 0.10.3
+
+**Bug Fixed**
+
++ Fix Http cache file io error https://github.com/openkraken/kraken/pull/1202.
++ Fix align-self not work for positioned flex item. https://github.com/openkraken/kraken/pull/1207
++ Fix text-align should only work for text node for flex
+  item. https://github.com/openkraken/kraken/pull/1208
++ Fix crash with scrolling.  https://github.com/openkraken/kraken/pull/1209
++ Fix children of inline-block element not stretch. https://github.com/openkraken/kraken/pull/1214
++ Fix style set to empty string. https://github.com/openkraken/kraken/pull/1220
++ Fix flex item not stretch when child size changed. https://github.com/openkraken/kraken/pull/1229
++ Fix html parse error. https://github.com/openkraken/kraken/pull/1231
++ Fix asset protocol error. https://github.com/openkraken/kraken/pull/1232
++ Fix file protocol. https://github.com/openkraken/kraken/pull/1234
+
+## 0.10.2+1
+
+**Bug Fixed**
+
++ Fix ios framework bundle missing CFBundleVersion and CFBundleAShortVersionString
+  key. https://github.com/openkraken/kraken/pull/1194
+
+## 0.10.2
+
+**Bug Fixed**
+
++ Fix report error cause stack overflow. https://github.com/openkraken/kraken/pull/1164
++ Fix object-fit not work due to image resize
+  optimization. https://github.com/openkraken/kraken/pull/1165
++ Fix crash when reload. https://github.com/openkraken/kraken/pull/1167
++ Fix referer and origin. https://github.com/openkraken/kraken/pull/1170
++ Fix large file content may fail. https://github.com/openkraken/kraken/pull/1176
++ Fix native event memory align on 32 bit devices. https://github.com/openkraken/kraken/pull/1182
++ Fix image load error cause crash. https://github.com/openkraken/kraken/pull/1187
+
+## 0.10.1
+
+**Bug Fixed**
+
++ Fix custom flutter widget when kraken disposed.  https://github.com/openkraken/kraken/pull/1142
++ Fix scrollable size should include padding. https://github.com/openkraken/kraken/pull/1135
++ Fix http request doesn't support multiple headers. https://github.com/openkraken/kraken/pull/1148
++ Fix document.location is undefined. https://github.com/openkraken/kraken/pull/1150
+
+## 0.10.0+5
+
+**Bug Fixed**
+
++ Fix WebSocket dev server error. https://github.com/openkraken/kraken/pull/1131
++ Fix image intrinsic size not correct which include padding and
+  border. https://github.com/openkraken/kraken/pull/1127
++ Fix unhandledPromiseRejection event. https://github.com/openkraken/kraken/pull/1137
++ Fix fetch API request options. https://github.com/openkraken/kraken/pull/1139
+
+## 0.10.0+4
+
+**Bug Fixed**
+
++ Fix HttpCache error on linux platform. https://github.com/openkraken/kraken/pull/1113
++ Fix exception leak cause globalObject not fully
+  freed. https://github.com/openkraken/kraken/pull/1117
++ Fix border radius of one percentage value. https://github.com/openkraken/kraken/pull/1121
+
+## 0.10.0+3
+
+**Bug Fixed**
+
++ Fix empty screen when page reload. https://github.com/openkraken/kraken/pull/1109
++ Fix linux dynamic rpath. https://github.com/openkraken/kraken/pull/1111
+
+## 0.10.0+2
+
+**Bug Fixed**
+
++ Fix error when set empty string to textOverflow. https://github.com/openkraken/kraken/pull/1095
++ Fix input delete key binding. https://github.com/openkraken/kraken/pull/1096
++ Fix load kraken bundle from env and native side. https://github.com/openkraken/kraken/pull/1098
++ Fix crash when reload page. https://github.com/openkraken/kraken/pull/1102
+
+## 0.10.0+1
+
+**Bug Fixed**
+
++ Fix stack overflow when working with multiple
+  thread. https://github.com/openkraken/kraken/pull/1086
++ Fix sepeated setting of style is invalid. https://github.com/openkraken/kraken/pull/1088
+
+## 0.10.0
+
+**Break Changes**
+
+* `Kraken.loadURL`, `Kraken.loadContent`, `Kraken.loadByteCode` are deprecated. Please use
+  `KrakenBundle.fromUrl`, `KrakenBundle.fromContent` instead.
+* Flutter Widget API had been upgraded, please refer
+  to https://openkraken.com/guide/advanced/widget-custom-element for more info.
+
+**Big News**
+
+* Support using Flutter Widget as HTML Custom Element which can greatly extend the capability of
+  Web, refer to [this doc](https://openkraken.com/en-US/guide/advanced/widget-custom-element) for
+  detailed use.
+
++ Performance optimized:
+  - Page load time reduced 10%.
+  - Scrolling FPS incrased 40%.
++ Linux platform supported.
++ Support Flutter 2.5.3.
+
+**Features**
+
++ Support defining Flutter widget as HTML custom
+  element. https://github.com/openkraken/kraken/pull/904
++ Support `style` element and `className` attribute. https://github.com/openkraken/kraken/pull/656
++ Support  `link` element and CSS variables. https://github.com/openkraken/kraken/pull/961
++ Support `assets:` protocol to unify the means to load local assets for different
+  platforms. https://github.com/openkraken/kraken/pull/866
++ Support pause kraken pages when navigator changes. https://github.com/openkraken/kraken/pull/877
++ Support linux platform. https://github.com/openkraken/kraken/pull/887
++ Support customize kraken dynamic library path. https://github.com/openkraken/kraken/pull/1048
+
+**Bug Fixed**
+
++ Fix width error in case of min width width padding. https://github.com/openkraken/kraken/pull/843
++ Fix percentage with decimal point. https://github.com/openkraken/kraken/pull/845
++ Fix iOS App store certificate validation. https://github.com/openkraken/kraken/pull/847
++ Fix text height with text-overflow ellipsis. https://github.com/openkraken/kraken/pull/848
++ Fix clone documentFragment node support. https://github.com/openkraken/kraken/pull/851
++ Fix layout wrapping space. https://github.com/openkraken/kraken/pull/856
++ Fix position placeholder offset not including
+  margin. https://github.com/openkraken/kraken/pull/857
++ Fix position sticky fail with overflow hidden. https://github.com/openkraken/kraken/pull/858
++ Fix HTMLAnchorElement lack full property support. https://github.com/openkraken/kraken/pull/864
++ Fix HTMLBRElement size not correct. https://github.com/openkraken/kraken/pull/867
++ Fix crash due to disposeEventTarget sync
+  implementation. https://github.com/openkraken/kraken/pull/873
++ Fix image performance by add image cache. https://github.com/openkraken/kraken/pull/879
++ Fix empty text node renderObject. https://github.com/openkraken/kraken/pull/881
++ Fix previous blank of text node. https://github.com/openkraken/kraken/pull/886
++ Fix only trigger gc once when disposed. https://github.com/openkraken/kraken/pull/892
++ Fix crash due to weak reference between style and
+  element. https://github.com/openkraken/kraken/pull/895
++ Fix layout performance by caching constraints. https://github.com/openkraken/kraken/pull/897
++ Fix sliver child is text without renderer should not
+  accept. https://github.com/openkraken/kraken/pull/898
++ Fix renderObject and element memory leaks. https://github.com/openkraken/kraken/pull/900
++ Fix hit test children not works in sliver list. https://github.com/openkraken/kraken/pull/905
++ Fix intersection observer performance. https://github.com/openkraken/kraken/pull/908
++ Fix crash when reportError. https://github.com/openkraken/kraken/pull/913
++ Fix style fail after resize. https://github.com/openkraken/kraken/pull/916
++ Fix some sliver usage cases. https://github.com/openkraken/kraken/pull/922
++ Fix free event targets properties by gc mark. https://github.com/openkraken/kraken/pull/929
++ Fix insert before fixed element. https://github.com/openkraken/kraken/pull/930
++ Fix document.createElement in multiple context. https://github.com/openkraken/kraken/pull/935
++ Fix error due to lacking negative length validation. https://github.com/openkraken/kraken/pull/938
++ Fix bridge memory leaks. https://github.com/openkraken/kraken/pull/939
++ Fix nested fixed element paint order. https://github.com/openkraken/kraken/pull/947
++ Fix image natural size with same url. https://github.com/openkraken/kraken/pull/948
++ Fix createElement and createTextNode performance. https://github.com/openkraken/kraken/pull/952
++ Fix text not shrink in flex container. https://github.com/openkraken/kraken/pull/980
++ Fix text rendering performance. https://github.com/openkraken/kraken/pull/990
++ Fix flex stretch height when positioned child
+  exists. https://github.com/openkraken/kraken/pull/1004
++ Fix transform should avoid trigger layout. https://github.com/openkraken/kraken/pull/1008
++ Fix ui command buffer instance leak. https://github.com/openkraken/kraken/pull/1014
++ Fix element attributes incorrect reference count. https://github.com/openkraken/kraken/pull/1020
++ Fix relayout boundary of flex item. https://github.com/openkraken/kraken/pull/1023
++ Fix element insert order of insertBefore. https://github.com/openkraken/kraken/pull/1024
++ Fix event target string property leak. https://github.com/openkraken/kraken/pull/1028
++ Fix reposition children logic lacking when position
+  changed. https://github.com/openkraken/kraken/pull/1033
++ Fix this_val on global func call. https://github.com/openkraken/kraken/pull/1036
++ Fix event type atom id changed when free. https://github.com/openkraken/kraken/pull/1040
++ Fix offsetTop and offsetLeft should relative to body element if no positioned parent
+  found. https://github.com/openkraken/kraken/pull/1041
++ Fix percentage of positioned element. https://github.com/openkraken/kraken/pull/1044
++ Fix input should blur when click other target. https://github.com/openkraken/kraken/pull/1052
++ Fix positioned element logical width/height
+  calculation. https://github.com/openkraken/kraken/pull/1053
+
+## 0.9.0
+
+**Big News**
+
+The QuickJS engine is now landed on kraken and we decided to replace our original JavaScriptCore
+implementation, which can provide low latency page init time and memory usage.
+
+**Break Changes**
+
++ `Kraken.defineCustomElement` API had been redesigned, now you can define both element and widget
+  with the same API. https://github.com/openkraken/kraken/pull/792
+
+**Features**
+
++ Migrate JavaScript Engine from JavaScriptCore to QuickJS.
++ Support query attributes on element from `document.querySelector` and
+  `document.querySelectorAll`. https://github.com/openkraken/kraken/pull/747
++ Auto detect physical device type and use different scroll animation behavior.
+  `BouncingScrollPhysics` on iOS and `ClampingScrollPhysics` on
+  Android. https://github.com/openkraken/kraken/pull/750
++ Add empty SVGElement tags but not svg rendering, to let vue app
+  works. https://github.com/openkraken/kraken/pull/757
++ Add Apple silicon support. https://github.com/openkraken/kraken/pull/767
++ Add Webpack HMR support. https://github.com/openkraken/kraken/pull/785
+
+**Bug Fixed**
+
++ Fix async error when update src property on image
+  element. https://github.com/openkraken/kraken/pull/759
++ Fix http-cache not updating when `last-modified` headers on HTTP request
+  changed. https://github.com/openkraken/kraken/pull/784
++ Fix HTML tags can not use custom tags. https://github.com/openkraken/kraken/pull/790
++ Fix rendering error when append child on image
+  elemnet. https://github.com/openkraken/kraken/pull/791
++ Fix translate negative percentage not working. https://github.com/openkraken/kraken/pull/832
+
+## 0.8.4
+
+**Break Changes**
+
++ Navigator.vibrate API no long support as default. https://github.com/openkraken/kraken/pull/655
++ Rename `kraken.setMethodCallHandler` to
+  `kraken.addMethodCallHandler`. https://github.com/openkraken/kraken/pull/658
++ `gestureClient` API migrated to `GestureListener`
+  API. https://github.com/openkraken/kraken/pull/716
+
+**Features**
+
++ Support documentFragment. https://github.com/openkraken/kraken/pull/641
++ Add default 1em margin for `<p>` https://github.com/openkraken/kraken/pull/648
++ Support document.querySelector and
+  document.querySelectorAll. https://github.com/openkraken/kraken/pull/672
++ Improve canvas performance when drawing pictures. https://github.com/openkraken/kraken/pull/679
++ Use xcframework for iOS release. https://github.com/openkraken/kraken/pull/698
++ Support vue-router with History API. https://github.com/openkraken/kraken/pull/711
++ Support `<template />` and element.innerHTML API. https://github.com/openkraken/kraken/pull/713
++ Support offline http cache. https://github.com/openkraken/kraken/pull/723
+
+**Bug Fixed**
+
++ Fix webpack hot reload. https://github.com/openkraken/kraken/issues/642
++ Fix hit test with detached child render object. https://github.com/openkraken/kraken/pull/651
++ Fix silver conflict with overflow-y. https://github.com/openkraken/kraken/pull/662
++ Fix child of flex item with flex-grow not stretch. https://github.com/openkraken/kraken/pull/665
++ Fix auto margin in flexbox. https://github.com/openkraken/kraken/pull/667
++ Fix positioned element size wrong when no width/height is
+  set. https://github.com/openkraken/kraken/pull/671
++ Fix scroll not working when overflowY is set to auto/scroll and overflowX not
+  set. https://github.com/openkraken/kraken/pull/681
++ Fix multi frame image can replay when loading from
+  caches.  https://github.com/openkraken/kraken/pull/685
++ Fix main axis auto size not including margin. https://github.com/openkraken/kraken/pull/702
+
+## 0.8.3+3
+
+**Bug Fixed**
+
++ Fix error when reading local path. https://github.com/openkraken/kraken/pull/635
+
+## 0.8.3+2
+
+**Bug Fixed**
+
++ Fix fetch request lost HTTP headers. https://github.com/openkraken/kraken/pull/633
+
+## 0.8.3+1
+
+**Bug Fixed**
+
++ Fix ios build. https://github.com/openkraken/kraken/pull/629
+
+## 0.8.3
+
+**Bug Fixed**
+
++ Fix crash caused by context has been released. https://github.com/openkraken/kraken/pull/605
++ Fix window.open() not working when bundleURL not
+  exist. https://github.com/openkraken/kraken/pull/612
++ Fix location.href is empty when set onLoadError
+  handler. https://github.com/openkraken/kraken/pull/613
++ Fix http cache should not intercept multi times. https://github.com/openkraken/kraken/pull/619
++ Fix input value when set to null. https://github.com/openkraken/kraken/pull/623
++ Fix input change event not trigger when blur. https://github.com/openkraken/kraken/pull/626
++ Fix keyboard not shown when keyboard dismissed and input gets focused
+  again. https://github.com/openkraken/kraken/pull/627
+
+**Features**
+
++ Support window.onerror and global error event. https://github.com/openkraken/kraken/pull/601
++ Add HTML Head's tags, like `<head>`, `<link>`,
+  `<style>`. https://github.com/openkraken/kraken/pull/603
++ Support customize `User-Agent` header. https://github.com/openkraken/kraken/pull/604
++ Remove androidx dependence. https://github.com/openkraken/kraken/pull/606
++ Add default margin for h1-h6 elements. https://github.com/openkraken/kraken/pull/607
+
+## 0.8.2+1
+
+**Bug Fixed**
+
++ Fix kraken widget layout size https://github.com/openkraken/kraken/pull/584
++ Fix input can not focus when hitting enter key https://github.com/openkraken/kraken/pull/595
+
+## 0.8.2
+
+**Features**
+
++ Support percentage for translate3d translateX and
+  translateY https://github.com/openkraken/kraken/pull/547
++ Add findProxyFromEnvironment methods in
+  HttpOverrides. https://github.com/openkraken/kraken/pull/551/files
++ Treat empty scheme as https protocol. https://github.com/openkraken/kraken/pull/557/files
++ Support length/percentage value for background-size. https://github.com/openkraken/kraken/pull/568
++ Support dbclick event. https://github.com/openkraken/kraken/pull/573
+
+**Bug Fixed**
+
++ Fix crash when HMR enabled. https://github.com/openkraken/kraken/pull/507
++ Fix parent box height can't auto caculate by scrollable container
+  children. https://github.com/openkraken/kraken/pull/517
++ Fix linear-gradient parse failed when have more than one
+  bracket. https://github.com/openkraken/kraken/pull/518
++ Fix image flex items have no size. https://github.com/openkraken/kraken/pull/520
++ Fix transition throw error. https://github.com/openkraken/kraken/pull/542
++ Fix empty screen in launcher mode. https://github.com/openkraken/kraken/pull/544
++ Fix element instanceof HTMLElement return false https://github.com/openkraken/kraken/pull/546
++ Fix transition animation execution order. https://github.com/openkraken/kraken/pull/559
++ Fix transition of backgroundColor with no default value not
+  working. https://github.com/openkraken/kraken/pull/562
++ Fix opacity 0 not working. https://github.com/openkraken/kraken/pull/565
++ Fix hittest with z-index order. https://github.com/openkraken/kraken/pull/572
++ Fix click event not triggerd on input element. https://github.com/openkraken/kraken/pull/575
++ Fix ios bridge build. https://github.com/openkraken/kraken/pull/576
+
+## 0.8.1
+
+**Features**
+
++ input element not support maxlength property https://github.com/openkraken/kraken/pull/450
++ support em and rem CSS length https://github.com/openkraken/kraken/pull/475
+
+**Bug Fixed**
+
++ remove same origin policy for xhr https://github.com/openkraken/kraken/pull/463
++ fix error when scroll to top in silver box https://github.com/openkraken/kraken/issues/468
++ fix js contextId allocate order
+  error https://github.com/openkraken/kraken/pull/474 https://github.com/openkraken/kraken/pull/477
+
+## 0.8.0+2
+
+**Features**
+
++ input element now support inputmode property https://github.com/openkraken/kraken/pull/441
+
+## 0.8.0+1
+
+**Bug Fixed**
+
++ Fix DOM events can't bind with addEventListener https://github.com/openkraken/kraken/pull/436
+
+## 0.8.0
+
+**Big News**
+
++ Kraken v0.8.0 now support flutter 2.2.0
+
+**Features**
+
++ Support dart null safety and all dependencies had upgraded.
++ Lock Android NDK version to 21.4.7075529. https://github.com/openkraken/kraken/pull/394
++ Add length value support in background-position https://github.com/openkraken/kraken/pull/421
+
+**Bug Fixed**
+
++ Fix error when setting element's eventHandler property to
+  null  https://github.com/openkraken/kraken/pull/426
++ Fix crash when trigger `touchcancel` events https://github.com/openkraken/kraken/pull/424
++ Fix error when reload kraken pages. https://github.com/openkraken/kraken/pull/419
++ Fix element's doesn't show up when setting display: none to display:
+  block. https://github.com/openkraken/kraken/pull/405
++ Fix empty blank screen in Android / iOS physical devices launching with SDK
+  mode. https://github.com/openkraken/kraken/pull/399
++ Fix WebView (created by iframe element) can't
+  scroll. https://github.com/openkraken/kraken/pull/398
++ Fix percentage length doesn't work in flex layout
+  box. https://github.com/openkraken/kraken/pull/397
++ Fix input element's height can't set with CSS height
+  property. https://github.com/openkraken/kraken/pull/395
++ Fix crash when set element.style multiple times in a short of
+  times. https://github.com/openkraken/kraken/pull/391
+
+## 0.7.3+2
+
+**Features**
+
++ Input element now support type=password options https://github.com/openkraken/kraken/pull/377
+
+**Bug Fixed**
+
++ Fix event can't bubble to document element https://github.com/openkraken/kraken/pull/380
++ fix: fix bridge crash with getStringProperty on
+  InputElement. https://github.com/openkraken/kraken/pull/386
+
+## 0.7.3+1
+
+* Fix: fix prebuilt binary.
+
+## 0.7.3
+
+**Features**
+
++ Feat: add network proxy interface in dart widget API https://github.com/openkraken/kraken/pull/292
++ Feat: add AsyncStorage.length method https://github.com/openkraken/kraken/pull/298
++ Feat: improve bridge call performance. https://github.com/openkraken/kraken/pull/328
++ feat: add SVGElement https://github.com/openkraken/kraken/pull/338
+
+**Bug Fixed**
+
++ Fix input setting value does not take effect before adding the dom
+  tree. https://github.com/openkraken/kraken/pull/297/files
++ Fix: remove unnecessary flushUICommand https://github.com/openkraken/kraken/pull/318
++ Fix: img lazy loading not work https://github.com/openkraken/kraken/pull/319
++ Fix: touchend crash caused by bridge https://github.com/openkraken/kraken/pull/320
++ Fix: fix target of the event agent does not point to the clicked
+  Node https://github.com/openkraken/kraken/pull/322
+
+**Refactor**
+
++ refactor: position sticky https://github.com/openkraken/kraken/pull/324
+
+## 0.7.2+4
+
+feat: support mouse event https://github.com/openkraken/kraken/pull/220
+fix: event bubble not works properly https://github.com/openkraken/kraken/pull/264
+fix: return value of Event.stopPropagation() should be
+undefined https://github.com/openkraken/kraken/pull/284
+fix/text node value https://github.com/openkraken/kraken/pull/279
+fix: fix kraken.methodChannel.setMethodCallHandler did't get called before kraken.invokeMethod
+called https://github.com/openkraken/kraken/pull/289
+
+## 0.7.2+3
+
+feat: add willReload and didReload hooks for devTools.
+
+## 0.7.2+2
+
+fix: export getUIThreadId and getGlobalContextRef symbols.
+
+## 0.7.2+1
+
+fix: export getDartMethod() symbols.
+
+## 0.7.2
+
+**Break Changes**
+
+fix: change default font size from 14px to 16px https://github.com/openkraken/kraken/pull/145
+
+**Bug Fixed**
+fix: modify customevent to event https://github.com/openkraken/kraken/pull/138
+fix: layout performance  https://github.com/openkraken/kraken/pull/155
+fix: fix elements created by new operator didn't have
+ownerDocument. https://github.com/openkraken/kraken/pull/178
+fix: flex-basis rule https://github.com/openkraken/kraken/pull/176
+fix: transform functions split error when more than
+one.  https://github.com/openkraken/kraken/pull/196
+fix: Fix the crash caused by navigation in dart https://github.com/openkraken/kraken/pull/249
+fix update device_info 1.0.0  https://github.com/openkraken/kraken/pull/262
+
+## 0.7.1
+
+**Bug Fixed**
+
+- fix: resize img wainting for img layouted[#86](https://github.com/openkraken/kraken/pull/86)
+- fix: fix: encoding snapshots filename to compact with
+  windows. [#69](https://github.com/openkraken/kraken/pull/69)
+- fix: fix insertBefore crash when passing none node
+  object. [#70](https://github.com/openkraken/kraken/pull/70)
+- fix: windows platform support build target to
+  Android. [#88](https://github.com/openkraken/kraken/pull/88)
+- fix: element size not change when widget size
+  change [#90](https://github.com/openkraken/kraken/pull/90)
+- fix: fix navigation failed of anchor element. [#95](https://github.com/openkraken/kraken/pull/95)
+- fix: 'kraken.methodChannel.setMethodCallHandler' override previous
+  handler [#96](https://github.com/openkraken/kraken/pull/96)
+- fix: repaintBoundary convert logic [#111](https://github.com/openkraken/kraken/pull/111)
+- fix: element append order wrong with comment node
+  exists [#116](https://github.com/openkraken/kraken/pull/116)
+- fix: fix access Node.previousSibling crashed when target node at top of
+  childNodes. [#126](https://github.com/openkraken/kraken/pull/126)
+- fix: fix access Element.children crashed when contains non-element nodes in
+  childNodes. [#126](https://github.com/openkraken/kraken/pull/126)
+- fix: percentage resolve fail with multiple sibling
+  exists [#144](https://github.com/openkraken/kraken/pull/144)
+- fix: default unknow element display change to
+  inline [#133](https://github.com/openkraken/kraken/pull/133)
+
+**Feature**
+
+- feat: support Node.ownerDocument [#107](https://github.com/openkraken/kraken/pull/107)
+- feat: support vmin and vmax [#109](https://github.com/openkraken/kraken/pull/109)
+- feat: support css none value [#129](https://github.com/openkraken/kraken/pull/129)
+- feat: suport Event.initEvent() and
+  Document.createEvent() [#130](https://github.com/openkraken/kraken/pull/131)
+- feat: Add block element: h1-h6 main header
+  aside. [#133](https://github.com/openkraken/kraken/pull/133)
+- feat: Add inline element: small i code
+  samp... [#133](https://github.com/openkraken/kraken/pull/133)
+
+## 0.7.0
+
+**Bug Fixed**
+
+- fix: zIndex set fail [#45](https://github.com/openkraken/kraken/pull/45)
+- fix: border radius percentage [#50](https://github.com/openkraken/kraken/pull/50)
+- fix: create text node empty string has height [#52](https://github.com/openkraken/kraken/pull/52)
+- fix: cached percentage image has no size [#54](https://github.com/openkraken/kraken/pull/54)
+- fix: fix set property to window did't refer to
+  globalThis [#60](https://github.com/openkraken/kraken/pull/60)
+- fix: box-shadow [#66](https://github.com/openkraken/kraken/pull/66)
+
+**Feature**
+
+- Feat: resize if viewport changed [#47](https://github.com/openkraken/kraken/pull/47)

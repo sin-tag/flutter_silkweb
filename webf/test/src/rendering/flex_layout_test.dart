@@ -1,0 +1,653 @@
+// ignore_for_file: avoid_print
+
+/*
+ * Copyright (C) 2022-present The WebF authors. All rights reserved.
+ */
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_silkweb/webf.dart';
+import '../../setup.dart';
+import '../widget/test_utils.dart';
+
+void main() {
+  setUp(() {
+    setupTest();
+    WebFControllerManager.instance.initialize(
+      WebFControllerManagerConfig(
+        maxAliveInstances: 5,
+        maxAttachedInstances: 5,
+        enableDevTools: false,
+      ),
+    );
+  });
+
+  tearDown(() {
+    // Controllers are automatically cleaned up when tests end
+  });
+
+  group('Flex Layout', () {
+    // Important: WebF uses border-box as the default box-sizing (not content-box)
+    // This means padding and border are included in the element's width/height
+
+    testWidgets('simple layout test using utility', (WidgetTester tester) async {
+      final prepared = await WebFWidgetTestUtils.prepareWidgetTest(
+        tester: tester,
+        html: '''
+          <div id="box" style="width: 200px; height: 100px; padding: 10px; background: red;">
+            Test Box
+          </div>
+        ''',
+      );
+
+      final box = prepared.getElementById('box');
+
+      // With border-box, width includes padding
+      expect(box.offsetWidth, equals(200.0), reason: 'Box width should be 200px');
+      expect(box.offsetHeight, equals(100.0), reason: 'Box height should be 100px');
+    });
+
+    testWidgets('measure layout and text size in flex container', skip: true, (WidgetTester tester) async {
+      final prepared = await WebFWidgetTestUtils.prepareWidgetTest(
+        tester: tester,
+        html: '''
+          <html>
+            <body style="margin: 0; padding: 0;">
+              <div id="container" style="
+                display: flex;
+                flex-direction: column;
+                align-items: flex-start;
+                width: 300px;
+                background: #f0f0f0;
+                padding: 10px;
+              ">
+                <div id="text1" style="background: red; padding: 5px; font-size: 16px;">Short</div>
+                <div id="text2" style="background: blue; padding: 5px; font-size: 20px;">Medium length</div>
+                <div id="text3" style="background: green; padding: 5px; font-size: 14px;">This is a much longer text content</div>
+              </div>
+            </body>
+          </html>
+        ''',
+      );
+
+      // Get elements using the helper
+      final container = prepared.getElementById('container');
+      final text1 = prepared.getElementById('text1');
+      final text2 = prepared.getElementById('text2');
+      final text3 = prepared.getElementById('text3');
+
+      await tester.pump(Duration(milliseconds: 200));
+
+      // Try to get measurements
+      final containerWidth = container.offsetWidth;
+      final containerHeight = container.offsetHeight;
+
+      final text1Width = text1.offsetWidth;
+      final text1Height = text1.offsetHeight;
+
+      final text2Width = text2.offsetWidth;
+      final text2Height = text2.offsetHeight;
+
+      final text3Width = text3.offsetWidth;
+      final text3Height = text3.offsetHeight;
+
+      // Log the measurements
+      print('Container: ${containerWidth}x$containerHeight');
+      print('Text1 (Short, 16px): ${text1Width}x$text1Height');
+      print('Text2 (Medium, 20px): ${text2Width}x$text2Height');
+      print('Text3 (Long, 14px): ${text3Width}x$text3Height');
+
+      // Verify container has proper layout
+      expect(containerWidth, greaterThan(0), reason: 'Container width should not be zero');
+      expect(containerHeight, greaterThan(0), reason: 'Container height should not be zero');
+      expect(containerWidth, equals(300.0), reason: 'Container should be 300px (border-box includes padding)');
+
+      // Text elements should have non-zero dimensions
+      expect(text1Width, greaterThan(0), reason: 'Text1 width should not be zero');
+      expect(text1Height, greaterThan(0), reason: 'Text1 height should not be zero');
+      expect(text2Width, greaterThan(0), reason: 'Text2 width should not be zero');
+      expect(text2Height, greaterThan(0), reason: 'Text2 height should not be zero');
+      expect(text3Width, greaterThan(0), reason: 'Text3 width should not be zero');
+      expect(text3Height, greaterThan(0), reason: 'Text3 height should not be zero');
+
+      // Text elements should have different widths based on content and font size
+      // Note: With flex container and align-items: flex-start, text doesn't wrap
+      // text2 has larger font (20px) so "Medium length" can be wider than text3 (14px)
+      expect(text1Width, lessThan(text2Width), reason: 'Short text should be narrower than medium text');
+
+      // Text heights should correspond to font sizes and line height
+      // With Chrome-like line-height (1.146), heights are roughly:
+      // text1 (16px): ~18px content + 10px padding = ~28px
+      // text2 (20px): ~23px content + 10px padding = ~33px
+      // text3 (14px): ~16px content + 10px padding = ~26px
+      expect(text2Height, greaterThan(text1Height), reason: 'Larger font size results in taller text');
+      expect(text2Height, greaterThan(text3Height), reason: 'text2 has the largest font size');
+    });
+
+    testWidgets('access render objects for layout measurements', (WidgetTester tester) async {
+      WebFController? controller;
+
+      await tester.runAsync(() async {
+        controller = await WebFControllerManager.instance.addWithPreload(
+          name: 'render-object-test',
+          createController: () => WebFController(
+            viewportWidth: 360,
+            viewportHeight: 640,
+          ),
+          bundle: WebFBundle.fromContent('''
+            <html>
+              <body style="margin: 0; padding: 0;">
+                <div id="fixed-box" style="
+                  width: 200px;
+                  height: 100px;
+                  background: red;
+                  padding: 10px;
+                  margin: 20px;
+                ">Fixed size box</div>
+                <div id="flex-container" style="
+                  display: flex;
+                  width: 300px;
+                ">
+                  <div id="flex-item1" style="flex: 1; min-width:0; background: blue; padding: 5px;">Item 1</div>
+                  <div id="flex-item2" style="flex: 2; min-width:0; background: green; padding: 5px;">Item 2</div>
+                </div>
+              </body>
+            </html>
+          ''', url: 'test://render-object-test/', contentType: htmlContentType),
+        );
+        await controller!.controlledInitCompleter.future;
+      });
+
+      final webf = WebF.fromControllerName(controllerName: 'render-object-test');
+      await tester.pumpWidget(webf);
+
+      // Wait for initial rendering
+      await tester.pump();
+      await tester.pump(Duration(milliseconds: 100));
+
+      await tester.runAsync(() async {
+        await controller!.controllerPreloadingCompleter.future;
+      });
+
+      // Additional frames to ensure layout
+      await tester.pump();
+      await tester.pump(Duration(milliseconds: 100));
+      await tester.pumpFrames(webf, Duration(milliseconds: 100));
+
+      await tester.runAsync(() async {
+        return Future.wait([
+          controller!.controllerOnDOMContentLoadedCompleter.future,
+          controller!.viewportLayoutCompleter.future,
+        ]);
+      });
+
+      await tester.pump(Duration(milliseconds: 200));
+
+      // Get elements
+      final fixedBox = controller!.view.document.getElementById(['fixed-box']);
+      final flexContainer = controller!.view.document.getElementById(['flex-container']);
+      final flexItem1 = controller!.view.document.getElementById(['flex-item1']);
+      final flexItem2 = controller!.view.document.getElementById(['flex-item2']);
+
+      expect(fixedBox, isNotNull);
+      expect(flexContainer, isNotNull);
+      expect(flexItem1, isNotNull);
+      expect(flexItem2, isNotNull);
+
+      // Try getBoundingClientRect
+      final fixedBoxRect = fixedBox!.getBoundingClientRect();
+      final flexItem1Rect = flexItem1!.getBoundingClientRect();
+      final flexItem2Rect = flexItem2!.getBoundingClientRect();
+
+      print('Fixed box rect: ${fixedBoxRect.width}x${fixedBoxRect.height} at (${fixedBoxRect.left}, ${fixedBoxRect.top})');
+      print('Flex item 1 rect: ${flexItem1Rect.width}x${flexItem1Rect.height}');
+      print('Flex item 2 rect: ${flexItem2Rect.width}x${flexItem2Rect.height}');
+
+      // Try offset properties
+      print('Fixed box offset: ${fixedBox.offsetWidth}x${fixedBox.offsetHeight}');
+      print('Flex item 1 offset: ${flexItem1.offsetWidth}x${flexItem1.offsetHeight}');
+      print('Flex item 2 offset: ${flexItem2.offsetWidth}x${flexItem2.offsetHeight}');
+
+      // Verify measurements are available
+      expect(fixedBoxRect.width, greaterThan(0), reason: 'Fixed box width should not be zero');
+      expect(fixedBoxRect.height, greaterThan(0), reason: 'Fixed box height should not be zero');
+      expect(flexItem1Rect.width, greaterThan(0), reason: 'Flex item 1 width should not be zero');
+      expect(flexItem2Rect.width, greaterThan(0), reason: 'Flex item 2 width should not be zero');
+
+      // Fixed box should be 200px wide (border-box includes padding)
+      expect(fixedBoxRect.width, equals(200.0), reason: 'Fixed box width (border-box includes padding)');
+      expect(fixedBoxRect.height, equals(100.0), reason: 'Fixed box height (border-box includes padding)');
+
+      // TODO remove gap:10px, after add gap feature we need to modify ratio to 1.9(196.66/103.33~1.90)
+      // Flex items should follow the flex ratio
+      // Due to padding, gap, and text content affecting intrinsic sizing,
+      // the ratio won't be exactly 2.0
+      // With the updated line-height calculations, text takes more space
+      // which affects flex distribution when items have intrinsic constraints
+      // without gap, flex: 1 and flex: 2, and flex-basis: 0%, the ratio should be exactly 2.0
+      final ratio = flexItem2Rect.width / flexItem1Rect.width;
+      expect(ratio, closeTo(2.0, 0.1), reason: 'Flex item 2 should be exactly twice as wide as item 1');
+    });
+    testWidgets('flex-direction row creates elements with correct structure', (WidgetTester tester) async {
+      WebFController? controller;
+
+      await tester.runAsync(() async {
+        controller = await WebFControllerManager.instance.addWithPreload(
+          name: 'flex-row-test',
+          createController: () => WebFController(
+            viewportWidth: 360,
+            viewportHeight: 640,
+          ),
+          bundle: WebFBundle.fromContent('''
+            <html>
+              <body style="margin: 0; padding: 0;">
+                <div id="container" style="
+                  display: flex;
+                  flex-direction: row;
+                  width: 300px;
+                  height: 100px;
+                  background: #f0f0f0;
+                ">
+                  <div id="item1" style="flex: 1; background: red;">1</div>
+                  <div id="item2" style="flex: 2; background: blue;">2</div>
+                  <div id="item3" style="flex: 1; background: green;">3</div>
+                </div>
+              </body>
+            </html>
+          ''', url: 'test://flex-row-test/', contentType: htmlContentType),
+        );
+        await controller!.controlledInitCompleter.future;
+      });
+
+      final webf = WebF.fromControllerName(controllerName: 'flex-row-test');
+      await tester.pumpWidget(webf);
+
+      // Wait for initial rendering
+      await tester.pump();
+      await tester.pump(Duration(milliseconds: 100));
+
+      await tester.runAsync(() async {
+        await controller!.controllerPreloadingCompleter.future;
+      });
+
+      // Additional frames to ensure layout
+      await tester.pump();
+      await tester.pump(Duration(milliseconds: 100));
+      await tester.pumpFrames(webf, Duration(milliseconds: 100));
+
+      await tester.runAsync(() async {
+        return Future.wait([
+          controller!.controllerOnDOMContentLoadedCompleter.future,
+          controller!.viewportLayoutCompleter.future,
+        ]);
+      });
+
+      // Ensure the controller is evaluated
+      expect(controller!.evaluated, isTrue);
+
+      final item1 = controller!.view.document.getElementById(['item1']);
+      final item2 = controller!.view.document.getElementById(['item2']);
+      final item3 = controller!.view.document.getElementById(['item3']);
+
+      // Test passes if all elements exist
+      expect(item1, isNotNull, reason: 'item1 should exist');
+      expect(item2, isNotNull, reason: 'item2 should exist');
+      expect(item3, isNotNull, reason: 'item3 should exist');
+
+      // Verify container exists
+      final container = controller!.view.document.getElementById(['container']);
+      expect(container, isNotNull, reason: 'Container should exist');
+
+      // Verify we have a valid DOM structure
+      expect(container!.children.length, equals(3), reason: 'Container should have 3 children');
+    });
+
+    testWidgets('flex-direction column creates elements with correct content', (WidgetTester tester) async {
+      WebFController? controller;
+
+      await tester.runAsync(() async {
+        controller = await WebFControllerManager.instance.addWithPreload(
+          name: 'flex-column-test',
+          createController: () => WebFController(
+            viewportWidth: 360,
+            viewportHeight: 640,
+          ),
+          bundle: WebFBundle.fromContent('''
+            <html>
+              <body style="margin: 0; padding: 0;">
+                <div id="container" style="
+                  display: flex;
+                  flex-direction: column;
+                  align-items: flex-start;
+                  background: #f0f0f0;
+                  padding: 10px;
+                ">
+                  <div id="short" style="background: red; padding: 5px;">Short</div>
+                  <div id="medium" style="background: blue; padding: 5px;">Medium length text</div>
+                  <div id="long" style="background: green; padding: 5px;">This is a much longer text content</div>
+                </div>
+              </body>
+            </html>
+          ''', url: 'test://flex-column-test/', contentType: htmlContentType),
+        );
+        await controller!.controlledInitCompleter.future;
+      });
+
+      final webf = WebF.fromControllerName(controllerName: 'flex-column-test');
+      await tester.pumpWidget(webf);
+
+      // Wait for initial rendering
+      await tester.pump();
+      await tester.pump(Duration(milliseconds: 100));
+
+      await tester.runAsync(() async {
+        await controller!.controllerPreloadingCompleter.future;
+      });
+
+      // Additional frames to ensure layout
+      await tester.pump();
+      await tester.pump(Duration(milliseconds: 100));
+      await tester.pumpFrames(webf, Duration(milliseconds: 100));
+
+      await tester.runAsync(() async {
+        return Future.wait([
+          controller!.controllerOnDOMContentLoadedCompleter.future,
+          controller!.viewportLayoutCompleter.future,
+        ]);
+      });
+
+      final shortItem = controller!.view.document.getElementById(['short']);
+      final mediumItem = controller!.view.document.getElementById(['medium']);
+      final longItem = controller!.view.document.getElementById(['long']);
+
+      // Test passes if all elements exist
+      expect(shortItem, isNotNull, reason: 'short item should exist');
+      expect(mediumItem, isNotNull, reason: 'medium item should exist');
+      expect(longItem, isNotNull, reason: 'long item should exist');
+
+      // Verify container exists and has correct structure
+      final container = controller!.view.document.getElementById(['container']);
+      expect(container, isNotNull, reason: 'Container should exist');
+      expect(container!.children.length, equals(3), reason: 'Container should have 3 children');
+    });
+
+    testWidgets('border-box sizing is default in WebF', (WidgetTester tester) async {
+      WebFController? controller;
+
+      await tester.runAsync(() async {
+        controller = await WebFControllerManager.instance.addWithPreload(
+          name: 'border-box-test',
+          createController: () => WebFController(
+            viewportWidth: 360,
+            viewportHeight: 640,
+          ),
+          bundle: WebFBundle.fromContent('''
+            <html>
+              <body style="margin: 0; padding: 0;">
+                <!-- Default box-sizing (border-box) -->
+                <div id="default-box" style="
+                  width: 100px;
+                  height: 100px;
+                  padding: 10px;
+                  border: 5px solid black;
+                  background: red;
+                ">Default</div>
+
+                <!-- Explicit border-box -->
+                <div id="border-box" style="
+                  width: 100px;
+                  height: 100px;
+                  padding: 10px;
+                  border: 5px solid black;
+                  box-sizing: border-box;
+                  background: blue;
+                ">Border Box</div>
+
+                <!-- Explicit content-box -->
+                <div id="content-box" style="
+                  width: 100px;
+                  height: 100px;
+                  padding: 10px;
+                  border: 5px solid black;
+                  box-sizing: content-box;
+                  background: green;
+                ">Content Box</div>
+              </body>
+            </html>
+          ''', url: 'test://border-box-test/', contentType: htmlContentType),
+        );
+        await controller!.controlledInitCompleter.future;
+      });
+
+      final webf = WebF.fromControllerName(controllerName: 'border-box-test');
+      await tester.pumpWidget(webf);
+
+      // Wait for initial rendering
+      await tester.pump();
+      await tester.pump(Duration(milliseconds: 100));
+
+      await tester.runAsync(() async {
+        await controller!.controllerPreloadingCompleter.future;
+      });
+
+      // Additional frames to ensure layout
+      await tester.pump();
+      await tester.pump(Duration(milliseconds: 100));
+      await tester.pumpFrames(webf, Duration(milliseconds: 100));
+
+      await tester.runAsync(() async {
+        return Future.wait([
+          controller!.controllerOnDOMContentLoadedCompleter.future,
+          controller!.viewportLayoutCompleter.future,
+        ]);
+      });
+
+      final defaultBox = controller!.view.document.getElementById(['default-box']);
+      final borderBox = controller!.view.document.getElementById(['border-box']);
+      final contentBox = controller!.view.document.getElementById(['content-box']);
+
+      expect(defaultBox, isNotNull);
+      expect(borderBox, isNotNull);
+      expect(contentBox, isNotNull);
+
+      print('Box-sizing test (measurements will be 0 in unit tests):');
+      print('Default box: ${defaultBox!.offsetWidth}x${defaultBox.offsetHeight}');
+      print('Border-box: ${borderBox!.offsetWidth}x${borderBox.offsetHeight}');
+      print('Content-box: ${contentBox!.offsetWidth}x${contentBox.offsetHeight}');
+
+      // In a real environment with layout:
+      // - Default box: 100x100 (includes padding and border)
+      // - Border-box: 100x100 (explicitly set, includes padding and border)
+      // - Content-box: 130x130 (100 + 20 padding + 10 border)
+
+      print('Note: Default box-sizing in WebF is border-box');
+      print('Border-box: width/height includes padding and border');
+      print('Content-box: width/height excludes padding and border');
+    });
+
+    testWidgets('empty flex items with percentage max-width should size to padding only (Case 2)', (WidgetTester tester) async {
+      final prepared = await WebFWidgetTestUtils.prepareWidgetTest(
+        tester: tester,
+        html: '''
+          <div id="container" style="
+            width: 360px;
+            display: flex;
+            justify-content: space-between;
+            gap: 5px;
+            border: 1px solid purple;
+            padding: 10px;
+            box-sizing: border-box;
+          ">
+            <div id="item1" style="
+              max-width: 30%;
+              overflow: hidden;
+              text-overflow: ellipsis;
+              white-space: nowrap;
+              background-color: lightblue;
+              padding: 25px;
+            "></div>
+            <div id="item2" style="
+              max-width: 40%;
+              overflow: hidden;
+              text-overflow: ellipsis;
+              white-space: nowrap;
+              background-color: lightgreen;
+              padding: 25px;
+            "></div>
+            <div id="item3" style="
+              background-color: lightyellow;
+              padding: 25px;
+            "></div>
+          </div>
+        ''',
+      );
+
+      final container = prepared.getElementById('container');
+      final item1 = prepared.getElementById('item1');
+      final item2 = prepared.getElementById('item2');
+      final item3 = prepared.getElementById('item3');
+
+      expect(container, isNotNull);
+      expect(item1, isNotNull);
+      expect(item2, isNotNull);
+      expect(item3, isNotNull);
+
+      print('=== Empty Flex Items Size Test ===');
+      print('Container: ${container.offsetWidth}x${container.offsetHeight}');
+      print('Item1 (maxWidth: 30%, padding: 25px): ${item1.offsetWidth}x${item1.offsetHeight}');
+      print('Item2 (maxWidth: 40%, padding: 25px): ${item2.offsetWidth}x${item2.offsetHeight}');
+      print('Item3 (no maxWidth, padding: 25px): ${item3.offsetWidth}x${item3.offsetHeight}');
+
+      // Each empty item should be exactly 50px wide (25px padding on each side)
+      // Since these items have no content, they should not expand beyond their padding box
+      expect(item1.offsetWidth, equals(50.0), 
+        reason: 'Empty item1 with maxWidth: 30% should be 50px (padding only)');
+      expect(item2.offsetWidth, equals(50.0), 
+        reason: 'Empty item2 with maxWidth: 40% should be 50px (padding only)');
+      expect(item3.offsetWidth, equals(50.0), 
+        reason: 'Empty item3 should be 50px (padding only)');
+
+      // All items should have the same height (50px = 25px padding top + bottom)
+      expect(item1.offsetHeight, equals(50.0), 
+        reason: 'Item1 height should be 50px (padding only)');
+      expect(item2.offsetHeight, equals(50.0), 
+        reason: 'Item2 height should be 50px (padding only)');
+      expect(item3.offsetHeight, equals(50.0), 
+        reason: 'Item3 height should be 50px (padding only)');
+
+      print('✅ All empty flex items correctly sized to padding box (50px)');
+    });
+
+    testWidgets('flex items with text content should size to content within max-width (Case 1)', (WidgetTester tester) async {
+      final prepared = await WebFWidgetTestUtils.prepareWidgetTest(
+        tester: tester,
+        html: '''
+          <div id="container" style="
+            width: 360px;
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            border: 1px solid purple;
+            padding: 10px;
+            box-sizing: border-box;
+          ">
+            <div id="item1" style="
+              max-width: 30%;
+              overflow: hidden;
+              text-overflow: ellipsis;
+              white-space: nowrap;
+              background-color: lightblue;
+              padding: 5px;
+            ">First item with long text</div>
+            <div id="item2" style="
+              max-width: 40%;
+              overflow: hidden;
+              text-overflow: ellipsis;
+              white-space: nowrap;
+              background-color: lightgreen;
+              padding: 5px;
+            ">Second item with even longer text content</div>
+            <div id="item3" style="
+              background-color: lightyellow;
+            ">Third</div>
+          </div>
+        ''',
+      );
+
+      final container = prepared.getElementById('container');
+      final item1 = prepared.getElementById('item1');
+      final item2 = prepared.getElementById('item2');
+      final item3 = prepared.getElementById('item3');
+
+      expect(container, isNotNull);
+      expect(item1, isNotNull);
+      expect(item2, isNotNull);
+      expect(item3, isNotNull);
+
+      print('=== Text Content Flex Items Size Test ===');
+      print('Container: ${container.offsetWidth}x${container.offsetHeight}');
+      print('Item1 (maxWidth: 30%, with text): ${item1.offsetWidth}x${item1.offsetHeight}');
+      print('Item2 (maxWidth: 40%, with text): ${item2.offsetWidth}x${item2.offsetHeight}');
+      print('Item3 (no maxWidth, with text): ${item3.offsetWidth}x${item3.offsetHeight}');
+
+      // Container available width: 360px - 20px padding = 340px
+      // Max widths: item1 = 30% of 340px = 102px, item2 = 40% of 340px = 136px
+      
+      // Items with text should size to their content but not exceed max-width
+      expect(item1.offsetWidth, lessThanOrEqualTo(102.0), 
+        reason: 'Item1 should not exceed 30% of container (102px)');
+      expect(item2.offsetWidth, lessThanOrEqualTo(136.0), 
+        reason: 'Item2 should not exceed 40% of container (136px)');
+      
+      // Items with text should be larger than just padding (10px total)
+      expect(item1.offsetWidth, greaterThan(10.0), 
+        reason: 'Item1 with text should be larger than padding only');
+      expect(item2.offsetWidth, greaterThan(10.0), 
+        reason: 'Item2 with text should be larger than padding only');
+
+      print('✅ Text content flex items correctly sized within max-width limits');
+    });
+
+    testWidgets('flex item overflow hidden should not take all width', (WidgetTester tester) async {
+      final prepared = await WebFWidgetTestUtils.prepareWidgetTest(
+        tester: tester,
+        html: '''
+          <div id="container" style="
+            display: flex;
+            width: 300px;
+            height: 21px;
+            font-size: 14px;
+            line-height: 21px;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+          ">
+            <div id="title" style="
+              font-size: 14px;
+              white-space: nowrap;
+              line-height: 21px;
+              min-width: 0;
+              text-overflow: ellipsis;
+              overflow: hidden;
+              font-weight: 600;
+            ">丝塔芙 【大白罐】舒润保湿霜453g身体乳护体乳不含烟酰胺</div>
+            <div id="suffix" style="
+              font-size: 14px;
+              white-space: nowrap;
+              line-height: 21px;
+              flex: 1;
+              color: #989898;
+            ">(刚刚浏览过)</div>
+          </div>
+        ''',
+      );
+
+      final container = prepared.getElementById('container');
+      final title = prepared.getElementById('title');
+      final suffix = prepared.getElementById('suffix');
+
+      expect(container.offsetWidth, equals(300.0));
+      expect(title.offsetWidth, lessThan(300.0));
+      expect(suffix.offsetWidth, greaterThan(0.0));
+    });
+
+  });
+}

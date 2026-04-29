@@ -1,0 +1,35 @@
+{
+  "name": "vue_usecases",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc -b && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@openwebf/vue-camera": "^1.0.1",
+    "@openwebf/vue-core-ui": "^0.24.0",
+    "@openwebf/vue-cupertino-ui": "^0.4.0",
+    "@openwebf/vue-lucide-icons": "^1.0.0",
+    "@openwebf/vue-router": "^1.0.0",
+    "@openwebf/vue-video-player": "^1.0.0",
+    "@openwebf/webf-bluetooth": "^1.0.0",
+    "vue": "^3.5.24"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "@vitejs/plugin-vue": "^6.0.1",
+    "@vue/tsconfig": "^0.8.1",
+    "autoprefixer": "^10.4.23",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.19",
+    "typescript": "~5.9.3",
+    "vite": "npm:rolldown-vite@7.2.5",
+    "vue-tsc": "^3.1.4"
+  },
+  "overrides": {
+    "vite": "npm:rolldown-vite@7.2.5"
+  }
+}

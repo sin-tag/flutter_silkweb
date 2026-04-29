@@ -1,0 +1,15 @@
+xcschememanagement.plist
+
+cmake-build-*
+polyfill/build/
+out
+code_gen
+.cache
+
+bin
+
+# ignore blink soft link
+blink_source
+
+# ignore preview tools
+.preview-bundles

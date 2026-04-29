@@ -1,0 +1,89 @@
+/*
+ * Copyright (C) 2024-present The OpenWebF Company. All rights reserved.
+ * Licensed under GNU GPL with Enterprise exception.
+ */
+/*
+ * Copyright (C) 2022-2024 The WebF authors. All rights reserved.
+ */
+
+import 'dart:async';
+import 'package:archive/archive.dart';
+import 'package:path/path.dart' as path;
+import 'package:hive_ce/hive.dart';
+import 'package:flutter_silkweb/foundation.dart';
+import 'package:flutter_silkweb/module.dart';
+
+Map<String, Box> _sharedSyncBox = {};
+
+class LocalStorageModule extends WebFBaseModule {
+  @override
+  String get name => 'LocalStorage';
+
+  static String getBoxKey(ModuleManager moduleManager) {
+    String origin = moduleManager.controller.origin;
+    int fileCheckSum = getCrc32(origin.codeUnits);
+    return '_webf_$fileCheckSum';
+  }
+
+  @override
+  Future<void> initialize() async {
+    final key = getBoxKey(moduleManager!);
+    final tmpPath = await getWebFTemporaryPath();
+    final storagePath = path.join(tmpPath, 'LocalStorage');
+
+    if (_sharedSyncBox.containsKey(key)) {
+      return;
+    }
+
+    try {
+      _sharedSyncBox[key] = await Hive.openBox(key, path: storagePath);
+    } catch (e) {
+      // Try again to avoid resources are temporarily unavailable.
+      _sharedSyncBox[key] = await Hive.openBox(key, path: storagePath);
+    }
+  }
+
+  LocalStorageModule(super.moduleManager);
+
+  @override
+  void dispose() {
+    final key = getBoxKey(moduleManager!);
+    _sharedSyncBox.remove(key);
+  }
+
+  @override
+  dynamic invoke(String method, List<dynamic> params) {
+    Box box = Hive.box(getBoxKey(moduleManager!));
+
+    switch (method) {
+      case 'getItem':
+        return box.get(params[0]);
+      case 'setItem':
+        box.put(params[0], params[1]);
+        break;
+      case 'removeItem':
+        box.delete(params[0]);
+        break;
+      case '_getAllKeys':
+        List<dynamic> keys = box.keys.toList();
+        return keys;
+      case 'key':
+        try {
+          return box.keyAt(params[0]);
+        } catch (e) {
+          return null;
+        }
+      case 'clear':
+        for (var key in box.keys) {
+          box.delete(key);
+        }
+        break;
+      case 'length':
+        return box.length;
+      default:
+        throw Exception('LocalStorage: Unknown method $method');
+    }
+
+    return '';
+  }
+}

@@ -1,0 +1,25 @@
+/*
+ * Copyright (C) 2024-present The OpenWebF Company. All rights reserved.
+ * Licensed under GNU GPL with Enterprise exception.
+ */
+import 'package:flutter/widgets.dart';
+import 'package:flutter_silkweb/rendering.dart';
+import 'package:flutter_silkweb/dom.dart' as dom;
+
+/// A simple widget to compute the total height of the childNodes of a given HTMLElement in a flow layout.
+/// This is useful for building a WidgetElement whose height depends on the HTML/CSS layout height.
+/// Note: The margin space between the childNodes is ignored because the parentData does not belong to WebF's RenderObjectModel.
+class WebFChildNodeSize extends SingleChildRenderObjectWidget {
+  const WebFChildNodeSize({
+    required this.ownerElement,
+    super.child,
+    super.key,
+  });
+
+  final dom.Element ownerElement;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) {
+    return RenderChildSize(ownerElement: ownerElement);
+  }
+}

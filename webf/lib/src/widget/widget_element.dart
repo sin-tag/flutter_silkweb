@@ -1,0 +1,429 @@
+/*
+ * Copyright (C) 2024-present The OpenWebF Company. All rights reserved.
+ * Licensed under GNU GPL with Enterprise exception.
+ */
+/*
+ * Copyright (C) 2022-2024 The WebF authors. All rights reserved.
+ */
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
+import 'package:flutter/widgets.dart';
+import 'package:flutter_silkweb/css.dart';
+import 'package:flutter_silkweb/dom.dart' as dom;
+import 'package:flutter_silkweb/launcher.dart';
+import 'package:flutter_silkweb/widget.dart';
+
+const Map<String, dynamic> _defaultStyle = {
+  DISPLAY: BLOCK,
+};
+
+// WidgetElement is the base class for custom elements which rendering details are implemented by Flutter widgets.
+abstract class WidgetElement extends dom.Element {
+  final Set<WebFWidgetElementState> _widgetElementStates = {};
+
+  void _addWidgetElementState(WebFWidgetElementState newState) {
+    _widgetElementStates.add(newState);
+  }
+
+  void _removeWidgetElementState(WebFWidgetElementState oldState) {
+    _widgetElementStates.remove(oldState);
+  }
+
+  WebFController get controller => ownerDocument.controller;
+
+  WebFWidgetElementState? get state {
+    final stateFinder = _widgetElementStates.where((state) => state.mounted == true);
+    return stateFinder.isEmpty ? null : stateFinder.last;
+  }
+
+  WebFWidgetElementState createState();
+
+  @override
+  dom.ChildNodeList get childNodes => super.childNodes as dom.ChildNodeList;
+  bool isRouterLinkElement = false;
+
+  WidgetElement(super.context) {
+    WidgetsFlutterBinding.ensureInitialized();
+  }
+
+  @override
+  Widget toWidget({Key? key}) {
+    WidgetElementAdapter widget = WidgetElementAdapter(this, key: key ?? this.key);
+    return widget;
+  }
+
+  @override
+  Map<String, dynamic> get defaultStyle => _defaultStyle;
+
+  /// Names of attributes whose Dart-side default values should be cached on the
+  /// native side during page initialization.
+  ///
+  /// This is used to make native `getAttribute()` non-blocking for these
+  /// defaults (i.e. avoid a synchronous call back to Dart) when the attribute
+  /// is not present in the native attribute store.
+  ///
+  /// Only include attributes whose default is stable and does not depend on
+  /// runtime state (e.g. do not include live "value" for input-like elements).
+  @protected
+  List<String> get defaultAttributeNamesForNativeCache => const <String>[];
+
+  /// Returns `[name1, value1, name2, value2, ...]` for defaults declared in
+  /// [defaultAttributeNamesForNativeCache].
+  List<String> collectDefaultAttributePairsForWidgetShape() {
+    final List<String> pairs = <String>[];
+    for (final String name in defaultAttributeNamesForNativeCache) {
+      try {
+        final String? value = getAttribute(name);
+        if (value == null) continue;
+        pairs.add(name);
+        pairs.add(value);
+      } catch (_) {
+        // Best-effort only: skip getters that depend on a non-null context or
+        // other runtime state not available during shape construction.
+      }
+    }
+    return pairs;
+  }
+
+  // React to properties and attributes changes
+  void attributeDidUpdate(String key, String value) {}
+
+  bool shouldElementRebuild(String key, previousValue, nextValue) {
+    return previousValue != nextValue;
+  }
+
+  void propertyDidUpdate(String key, value) {}
+
+  void styleDidUpdate(String property, String value) {}
+
+  // The render object is inserted by Flutter framework when element is WidgetElement.
+  @override
+  dom.RenderObjectManagerType get renderObjectManagerType => dom.RenderObjectManagerType.FLUTTER_ELEMENT;
+
+  @nonVirtual
+  @override
+  bool get isWidgetElement => true;
+
+  bool get isScrollingElement => false;
+
+  /// Override this property to disable box model painting for this widget element.
+  /// When set to true, RenderWidget will call performPaint directly instead of paintBoxModel.
+  /// This is useful for widgets that handle their own painting entirely.
+  bool get disableBoxModelPaint => false;
+
+  /// Override this property to allow this WidgetElement to have infinite width constraints.
+  /// When set to true, RenderWidget will pass the infinite width constraint to its child
+  /// if it receives an infinite height constraint itself.
+  /// This is useful for widgets that wrap a scrollable container around them.
+  bool get allowsInfiniteWidth => false;
+
+  /// Override this property to allow this WidgetElement to have infinite height constraints.
+  /// When set to true, RenderWidget will pass the infinite height constraint to its child
+  /// if it receives an infinite height constraint itself.
+  /// This is useful for widgets that wrap a scrollable container around them.
+  bool get allowsInfiniteHeight => false;
+
+  @mustCallSuper
+  @override
+  void didDetachRenderer([RenderObjectElement? flutterWidgetElement]) {
+    super.didDetachRenderer(flutterWidgetElement);
+  }
+
+  /// [willAttachRenderer] and [didAttachRenderer] on WidgetElement will be called when this WidgetElement's parent is
+  /// standard WebF element.
+  /// If this WidgetElement's parent is another WidgetElement, [WebFWidgetElementAdapterElement.mount] and [WebFWidgetElementAdapterElement.unmount]
+  /// place the equivalence altitude to the [willAttachRenderer] and [didAttachRenderer].
+  @mustCallSuper
+  @override
+  RenderObject willAttachRenderer([RenderObjectElement? flutterWidgetElement]) {
+    RenderObject renderObject = super.willAttachRenderer(flutterWidgetElement);
+    return renderObject;
+  }
+
+  @mustCallSuper
+  @override
+  void didAttachRenderer([Element? flutterWidgetElement]) {}
+
+  @override
+  void setInlineStyle(String property, String value, {String? baseHref, bool fromNative = false}) {
+    bool shouldRebuild = shouldElementRebuild(property, style.getPropertyValue(property), value);
+    super.setInlineStyle(property, value, baseHref: baseHref, fromNative: fromNative);
+    if (state != null && shouldRebuild) {
+      state!.requestUpdateState();
+    }
+    styleDidUpdate(property, value);
+  }
+
+  @mustCallSuper
+  @override
+  void removeAttribute(String qualifiedName) {
+    bool shouldRebuild = shouldElementRebuild(qualifiedName, getAttribute(qualifiedName), null);
+    super.removeAttribute(qualifiedName);
+    if (state != null && shouldRebuild) {
+      state!.requestUpdateState();
+    }
+    attributeDidUpdate(qualifiedName, '');
+  }
+
+  @mustCallSuper
+  @override
+  void setAttribute(String qualifiedName, value) {
+    bool shouldRebuild = shouldElementRebuild(qualifiedName, getAttribute(qualifiedName), value);
+    super.setAttribute(qualifiedName, value);
+    if (state != null && shouldRebuild) {
+      state!.requestUpdateState();
+    }
+    attributeDidUpdate(qualifiedName, value);
+  }
+
+  @nonVirtual
+  @override
+  dom.Node appendChild(dom.Node child) {
+    super.appendChild(child);
+
+    // Only trigger update if the child are created by JS. If it's created on Flutter widgets, the flutter framework will handle this.
+    if (state != null) {
+      state!.requestUpdateState();
+    }
+
+    return child;
+  }
+
+  @nonVirtual
+  @override
+  dom.Node insertBefore(dom.Node child, dom.Node referenceNode) {
+    dom.Node inserted = super.insertBefore(child, referenceNode);
+
+    if (state != null) {
+      state!.requestUpdateState();
+    }
+
+    return inserted;
+  }
+
+  @nonVirtual
+  @override
+  dom.Node? replaceChild(dom.Node newNode, dom.Node oldNode) {
+    dom.Node? replaced = super.replaceChild(newNode, oldNode);
+
+    if (state != null) {
+      state!.requestUpdateState();
+    }
+
+    return replaced;
+  }
+
+  @nonVirtual
+  @override
+  dom.Node removeChild(dom.Node child) {
+    super.removeChild(child);
+
+    if (state != null) {
+      state!.requestUpdateState();
+    }
+
+    return child;
+  }
+}
+
+class WidgetElementAdapter extends dom.WebFElementWidget {
+  WidgetElement get widgetElement => super.webFElement as WidgetElement;
+
+  const WidgetElementAdapter(WidgetElement super.widgetElement, {super.key});
+
+  @override
+  StatefulElement createElement() {
+    return WebFWidgetElementAdapterElement(this);
+  }
+
+  @override
+  State<StatefulWidget> createState() {
+    return WebFWidgetElementAdapterState();
+  }
+
+  @override
+  String toStringShort() {
+    return 'WidgetElementAdapter(${widgetElement.tagName.toLowerCase()})';
+  }
+
+}
+
+class WebFWidgetElementAdapterElement extends StatefulElement {
+  WebFWidgetElementAdapterElement(super.widget);
+
+  @override
+  WidgetElementAdapter get widget => super.widget as WidgetElementAdapter;
+
+  @override
+  WebFWidgetElementAdapterState get state => super.state as WebFWidgetElementAdapterState;
+}
+
+class WebFWidgetElement extends StatefulWidget {
+  final WidgetElement widgetElement;
+
+  const WebFWidgetElement(this.widgetElement, {super.key});
+
+  @override
+  // ignore: no_logic_in_create_state
+  State<StatefulWidget> createState() {
+    WebFWidgetElementState state = widgetElement.createState();
+    widgetElement._addWidgetElementState(state);
+    return state;
+  }
+}
+
+abstract class WebFWidgetElementState extends State<WebFWidgetElement> {
+  final WidgetElement widgetElement;
+
+  WebFWidgetElementState(this.widgetElement);
+
+  void requestUpdateState([VoidCallback? callback, AdapterUpdateReason? reason]) {
+    if (!mounted) return;
+    final phase = SchedulerBinding.instance.schedulerPhase;
+    void doSetState() {
+      if (!mounted) return;
+      setState(() {
+        if (callback != null) callback();
+      });
+    }
+    // Avoid setState during build; defer to next frame.
+    if (phase == SchedulerPhase.persistentCallbacks || phase == SchedulerPhase.midFrameMicrotasks) {
+      SchedulerBinding.instance.addPostFrameCallback((_) => doSetState());
+      SchedulerBinding.instance.scheduleFrame();
+    } else {
+      doSetState();
+    }
+  }
+
+  String? getRenderObjectTree() {
+    return context.findRenderObject()?.toStringDeep();
+  }
+
+  @override
+  String toStringShort() {
+    return '${super.toStringShort()} $widgetElement';
+  }
+
+  @override
+  void dispose() {
+    widgetElement._removeWidgetElementState(this);
+    super.dispose();
+  }
+}
+
+class WebFWidgetElementAdapterState extends dom.WebFElementWidgetState {
+  WebFWidgetElementAdapterState() : super();
+
+  WidgetElement get widgetElement => super.webFElement as WidgetElement;
+
+  void requestUpdateState([VoidCallback? callback, AdapterUpdateReason? reason]) {
+    if (!mounted) return;
+    final phase = SchedulerBinding.instance.schedulerPhase;
+    void doSetState() {
+      if (!mounted) return;
+      setState(() {
+        if (callback != null) callback();
+      });
+    }
+    if (phase == SchedulerPhase.persistentCallbacks || phase == SchedulerPhase.midFrameMicrotasks) {
+      SchedulerBinding.instance.addPostFrameCallback((_) => doSetState());
+      SchedulerBinding.instance.scheduleFrame();
+    } else {
+      doSetState();
+    }
+  }
+
+  @override
+  String toString({DiagnosticLevel minLevel = DiagnosticLevel.info}) {
+    return 'WidgetElementState(${widgetElement.tagName.toLowerCase()})#${shortHash(this)}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+
+    if (widgetElement.blinkDeferFirstPaint || widgetElement.renderStyle.display == CSSDisplay.none) {
+      return SizedBox.shrink();
+    }
+
+    Widget child = WebFEventListener(
+        ownerElement: widgetElement, hasEvent: widgetElement.hasEvent, child: WebFWidgetElement(widgetElement));
+
+    List<Widget> children = [child];
+
+    for (var element in widgetElement.outOfFlowPositionedElements) {
+      children.add(element.toWidget());
+    }
+
+    return WebFRenderWidgetAdaptor(widgetElement, key: widgetElement.key, children: children);
+  }
+}
+
+class WebFRenderWidgetAdaptor extends MultiChildRenderObjectWidget {
+  const WebFRenderWidgetAdaptor(this.widgetElement, {required super.children, super.key});
+
+  final WidgetElement widgetElement;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) {
+    return widgetElement.renderStyle.getWidgetPairedRenderBoxModel(context as RenderObjectElement)!;
+  }
+
+  @override
+  String toStringShort() => '<${widgetElement.tagName.toLowerCase()} />';
+
+  @override
+  MultiChildRenderObjectElement createElement() {
+    return RenderWidgetElement(this);
+  }
+}
+
+class RenderWidgetElement extends MultiChildRenderObjectElement {
+  RenderWidgetElement(super.widget);
+
+  @override
+  WebFRenderWidgetAdaptor get widget => super.widget as WebFRenderWidgetAdaptor;
+
+  // The renderObjects held by this adapter needs to be upgrade, from the requirements of the DOM tree style changes.
+  void requestForBuild(AdapterUpdateReason reason) {
+    widget.widgetElement.forEachState((state) {
+      if (!state.mounted) return;
+      (state as WebFWidgetElementAdapterState).requestUpdateState(null, reason);
+    });
+  }
+
+  RouteSettings? _currentRouteSettings;
+
+  @override
+  void mount(Element? parent, Object? newSlot) {
+    widget.widgetElement.willAttachRenderer(this);
+    super.mount(parent, newSlot);
+    widget.widgetElement.didAttachRenderer(this);
+
+    ModalRoute? route = ModalRoute.of(this);
+    _currentRouteSettings = route?.settings;
+    dom.OnScreenEvent event =
+        dom.OnScreenEvent(state: _currentRouteSettings?.arguments, path: _currentRouteSettings?.name ?? '/');
+
+    WidgetElement widgetElement = widget.widgetElement;
+    // Use the queue system if the element has the mixin
+    widgetElement.enqueueScreenEvent(dom.ScreenEvent.onScreen(event));
+  }
+
+  @override
+  void unmount() {
+    dom.OffScreenEvent event =
+        dom.OffScreenEvent(state: _currentRouteSettings?.arguments, path: _currentRouteSettings?.name ?? '');
+    dom.Element widgetElement = widget.widgetElement;
+
+    // Use the queue system if the element has the mixin
+    widgetElement.enqueueScreenEvent(dom.ScreenEvent.offScreen(event));
+
+    _currentRouteSettings = null;
+
+    widgetElement.willDetachRenderer(this);
+    super.unmount();
+    widgetElement.didDetachRenderer(this);
+  }
+}

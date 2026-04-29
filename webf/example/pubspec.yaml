@@ -1,0 +1,80 @@
+name: webf_example
+description: Demonstrates how to use the webf plugin.
+
+# The following line prevents the package from being accidentally published to
+# pub.dev using `pub publish`. This is preferred for private packages.
+publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  go_router: ^16.1.0
+  example_app:
+    path: rust_builder
+  webf: ^0.10.0
+  shadcn_ui: ^0.43.3
+  #  For enterprise version:
+  #  webf: ^0.23.10  # Enterprise version available on pub.dev
+  flutter_highlight: ^0.7.0
+  dropdown_button2: ^2.3.9
+  dynamic_tabbar: ^1.0.9
+  day_night_switcher: ^0.2.0+1
+  adaptive_theme: ^3.3.0
+  cupertino_icons: ^1.0.0
+  flutter_svg: ^2.0.17
+  share_plus: ^10.0.0
+  showcaseview: ^4.0.1
+  path_provider: ^2.1.5
+  collection: ^1.18.0
+  auto_size_text: ^3.0.0
+  webf_cupertino_ui: ^0.3.37
+  webf_lucide_icons:
+    path: ../../native_uis/webf_lucide_icons
+  webf_shadcn_ui:
+    path: ../../native_uis/webf_shadcn_ui
+  webf_share:
+    path: ../../native_plugins/share
+  webf_sqflite:
+    path: ../../native_plugins/sqflite
+  webf_camera:
+    path: ../../native_uis/webf_camera
+  webf_bluetooth:
+    path: ../../native_plugins/bluetooth
+  # webf_form:
+  webf_video_player:
+    path: ../../native_uis/webf_video_player
+  # path: ../../native_uis/form
+  vibration: ^3.1.3
+  url_launcher: ^6.3.1
+  app_links: ^6.3.2
+  image_picker: ^1.1.2
+  file_picker: ^10.2.0
+  shared_preferences: ^2.5.3
+  visibility_detector: ^0.4.0+2
+  cronet_http: ^1.5.0
+  dio: ^5.4.0
+
+# When depending on this package from a real application,
+# you should remove the following overrides.
+# See https://dart.dev/tools/pub/dependencies#version-constraints
+# The example app is bundled with the plugin so we use a path dependency on
+# the parent directory to use the current plugin's version.
+dependency_overrides:
+  webf:
+    path: ../
+  webf_cupertino_ui:
+    path:
+      ../../native_uis/webf_cupertino_ui
+  adaptive_theme: 3.7.0
+  form_builder_validators: ^11.2.0
+  intl: ^0.20.2
+
+# The following section is specific to Flutter.
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/
+    - assets/modules/

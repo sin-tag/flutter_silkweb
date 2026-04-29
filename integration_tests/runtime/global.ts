@@ -1,0 +1,722 @@
+/*
+ * Copyright (C) 2022-present The Kraken authors. All rights reserved.
+ */
+/**
+ * This file will expose global functions for specs to use.
+ *
+ * - setElementStyle: Apply style object to a specfic DOM.
+ * - setElementProps: Apply attrs object to a specfic DOM.
+ * - sleep: wait for several seconds.
+ * - create: create element.
+ * - snapshot: match snapshot of body's image.
+ */
+
+// Should by getter because body will reset before each spec
+declare const BODY: HTMLBodyElement
+
+// Declare test filter global
+declare global {
+  interface Window {
+    WEBF_TEST_NAME_FILTER?: string;
+  }
+}
+
+Object.defineProperty(global, 'BODY', {
+  get() {
+    return document.body;
+  }
+});
+
+// Hook into Jasmine to support test filtering
+if (typeof window !== 'undefined' && window.WEBF_TEST_NAME_FILTER) {
+  const originalIt = global.it;
+  const originalFit = global.fit;
+  const filter = window.WEBF_TEST_NAME_FILTER;
+  
+  console.log(`Test filter active: "${filter}"`);
+  
+  // Override 'it' to check filter
+  global.it = function(description: string, fn: Function, timeout?: number) {
+    if (description.includes(filter)) {
+      console.log(`Running test: "${description}"`);
+      return originalIt.call(this, description, fn, timeout);
+    } else {
+      // Skip tests that don't match the filter
+      return global.xit(description, fn, timeout);
+    }
+  };
+  
+  // Override 'fit' to check filter
+  global.fit = function(description: string, fn: Function, timeout?: number) {
+    if (description.includes(filter)) {
+      console.log(`Running focused test: "${description}"`);
+      return originalFit.call(this, description, fn, timeout);
+    } else {
+      // Skip tests that don't match the filter
+      return global.xit(description, fn, timeout);
+    }
+  };
+}
+
+function setElementStyle(dom: HTMLElement, object: any) {
+  if (object == null) return;
+  for (let key in object) {
+    if (object.hasOwnProperty(key)) {
+      dom.style[key] = object[key];
+    }
+  }
+}
+
+function setAttributes(dom: any, object: any) {
+  for (const key in object) {
+    if (object.hasOwnProperty(key)) {
+      dom.setAttribute(key, object[key]);
+    }
+  }
+}
+
+function test(fn, title) {
+  it(title, fn);
+}
+
+function ftest(fn, title) {
+  fit(title, fn);
+}
+
+function xtest(fn, title) {
+  xit(title, fn)
+}
+
+function assert_equals(a: any, b: any, message?: string) {
+  if(typeof a != typeof b) {
+    fail(message)
+    return;
+  }
+  if (b !== b) {
+    // NaN case 
+    expect(a !== a).toBe(true, message);
+    return;
+  }
+  expect(a).toBe(b, message)
+}
+
+function assert_class_string(classObject: any, result: string) {
+  expect(classObject.constructor.name).toBe(result);
+}
+
+function assert_true(value: any, message?: string) {
+  expect(value).toBe(true, message)
+}
+
+function assert_throws_exactly(error: any, fn: Function) {
+  expect(fn).toThrow(error);
+}
+
+function assert_throws(error: any, fn: Function) {
+  expect(fn).toThrow();
+}
+
+function assert_not_equals(a: any, b: any, message?: string) {
+  expect(a !== b).toBe(true, message)
+}
+function assert_false(value: any, message?: string) {
+  expect(value).toBe(false, message)
+}
+
+/**
+     * Assert that ``actual`` is within ± ``epsilon`` of ``expected``.
+     *
+     * @param {number} actual - Test value.
+     * @param {number} expected - Value number is expected to be close to.
+     * @param {number} epsilon - Magnitude of allowed difference between ``actual`` and ``expected``.
+     * @param {string} [description] - Description of the condition being tested.
+     */
+function assert_approx_equals(actual, expected, epsilon, description)
+{
+    /*
+     * Test if two primitive numbers are equal within +/- epsilon
+     */
+    description = description + ", actual value is " + actual;
+    assert_true(typeof actual === "number", description);
+
+    // The epsilon math below does not place nice with NaN and Infinity
+    // But in this case Infinity = Infinity and NaN = NaN
+    if (isFinite(actual) || isFinite(expected)) {
+        assert_true(Math.abs(actual - expected) <= epsilon, description);
+    } else {
+        assert_equals(actual, expected);
+    }
+}
+
+function format_value(v: any) {
+  return JSON.stringify(v)
+}
+
+function assert_array_equals(value, result, message?: string) {
+  expect([].slice.call(value)).toEqual(result, message);
+}
+
+// Avoid overwrited by jasmine.
+const originalTimeout = global.setTimeout;
+function sleep(second: number) {
+  return new Promise(done => originalTimeout(done, second * 1000));
+}
+
+function nextFrames(count = 0) {
+  return new Promise<void>((resolve, reject) => {
+    function frame() {
+      if (count == 0) {
+        resolve();
+        return;
+      }
+      count--;
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  });
+}
+
+type ElementProps = {
+  [key: string]: any;
+  style?: {
+    [key: string]: any;
+  }
+};
+
+function setElementProps(el: HTMLElement, props: ElementProps) {
+  let keys = Object.keys(props);
+  for (let key of keys) {
+    if (key === 'style') {
+      setElementStyle(el, props[key]);
+    } else {
+      el[key] = props[key];
+    }
+  }
+}
+
+function createElement(tag: string, props: ElementProps, child?: Node | Array<Node>) {
+  const el = document.createElement(tag);
+  setElementProps(el, props);
+  if (Array.isArray(child)) {
+    child.forEach(c => el.appendChild(c));
+  } else if (child) {
+    el.appendChild(child);
+  }
+  return el;
+}
+
+function createElementWithStyle(tag: string, style: { [key: string]: string | number }, child?: Node | Array<Node>): any {
+  const el = document.createElement(tag);
+  setElementStyle(el, style);
+  if (Array.isArray(child)) {
+    child.forEach(c => el.appendChild(c));
+  } else if (child) {
+    el.appendChild(child);
+  }
+  return el;
+}
+
+function createViewElement(extraStyle, child) {
+  return createElement(
+    'div',
+    {
+      style: {
+        display: 'flex',
+        position: 'relative',
+        flexDirection: 'column',
+        flexShrink: 0,
+        alignContent: 'flex-start',
+        border: '0 solid black',
+        margin: 0,
+        padding: 0,
+        minWidth: 0,
+        ...extraStyle,
+      },
+    },
+    child
+  );
+}
+
+function createText(content: string) {
+  return document.createTextNode(content);
+}
+
+class Cubic {
+  /// The x coordinate of the first control point.
+  ///
+  /// The line through the point (0, 0) and the first control point is tangent
+  /// to the curve at the point (0, 0).
+  private readonly a: number;
+  /// The y coordinate of the first control point.
+  ///
+  /// The line through the point (0, 0) and the first control point is tangent
+  /// to the curve at the point (0, 0).
+  private readonly b: number;
+  /// The x coordinate of the second control point.
+  ///
+  /// The line through the point (1, 1) and the second control point is tangent
+  /// to the curve at the point (1, 1).
+  private readonly c: number;
+  /// The y coordinate of the second control point.
+  ///
+  /// The line through the point (1, 1) and the second control point is tangent
+  /// to the curve at the point (1, 1).
+  private readonly d: number;
+
+  constructor(a, b, c, d) {
+    this.a = a;
+    this.b = b;
+    this.c = c;
+    this.d = d;
+  }
+
+  _evaluateCubic(a, b, m) {
+    return 3 * a * (1 - m) * (1 - m) * m +
+      3 * b * (1 - m) *           m * m +
+      m * m * m;
+  }
+
+  transformInternal(t) {
+    let start = 0.0;
+    let end = 1.0;
+    while (true) {
+      let midpoint = (start + end) / 2;
+      let estimate = this._evaluateCubic(this.a, this.c, midpoint);
+      if (Math.abs((t - estimate)) < 0.001)
+        return this._evaluateCubic(this.b, this.d, midpoint);
+      if (estimate < t)
+        start = midpoint;
+      else
+        end = midpoint;
+    }
+  }
+}
+
+const ease = new Cubic(0.25, 0.1, 0.25, 1.0);
+
+// Simulate an mouse click action
+async function simulateClick(x: number, y: number, pointer: number = 0) {
+  await simulatePointer([
+    [x, y, PointerChange.add],
+    [x, y, PointerChange.down],
+    [x, y, PointerChange.up],
+    [x, y, PointerChange.remove]
+  ], pointer);
+}
+
+// Simulate an mouse swipe action.
+async function simulateSwipe(startX: number, startY: number, endX: number, endY: number, duration: number, pointer: number = 0) {
+  let params: [number, number, number, number, number, number][] = [];
+  let pointerMoveDelay = 0.016;
+  let totalCount = duration / pointerMoveDelay;
+  let diffXPerFrame = (endX - startX) / totalCount;
+  let diffYPerFrame = (endY - startY) / totalCount;
+
+  let previousX = startX;
+  let previousY = startY;
+  for (let i = 0; i < totalCount; i ++) {
+    let progress = i / totalCount;
+    let diffX = diffXPerFrame * 100 * ease.transformInternal(progress);
+    let diffY = diffYPerFrame * 100 * ease.transformInternal(progress);
+
+    params.push([startX + diffX, startY + diffY, PointerChange.move, PointerSignalKind.scroll, startX + diffX - previousX, startY + diffY - previousY])
+
+    previousX = startX + diffX;
+    previousY = startY + diffY;
+  }
+
+  await simulatePointer(params, pointer);
+}
+
+// Simulate an point down action.
+async function simulatePointDown(x: number, y: number, pointer: number = 0) {
+  return new Promise(async (resolve) => {
+    requestAnimationFrame(async () => {
+      await simulatePointer([
+        [x, y, PointerChange.down],
+      ], pointer);
+      resolve();
+    });
+  });
+}
+
+async function simulatePointMove(x: number, y: number, pointer: number = 0) {
+  return new Promise((resolve) => {
+    requestAnimationFrame(async () => {
+      await simulatePointer([
+        [x, y, PointerChange.move],
+      ], pointer);
+      resolve();
+    });
+  });
+}
+
+async function simulatePointAdd(x: number, y: number, pointer: number = 0) {
+  return new Promise(resolve => {
+    requestAnimationFrame(async () => {
+      await simulatePointer([
+        [x, y, PointerChange.add],
+      ], pointer);
+      resolve();
+    });
+  });
+}
+
+
+async function simulatePointRemove(x: number, y: number, pointer: number = 0) {
+  return new Promise(resolve => {
+    requestAnimationFrame(async () => {
+      await simulatePointer([
+        [x, y, PointerChange.remove],
+      ], pointer);
+      resolve();
+    });
+  });
+}
+
+
+// Simulate an point up action.
+async function simulatePointUp(x: number, y: number, pointer: number = 0) {
+  return new Promise(resolve => {
+    requestAnimationFrame(async () => {
+      await simulatePointer([
+        [x, y, PointerChange.up]
+      ], pointer);
+      resolve();
+    });
+  });
+}
+
+function onDoubleImageLoad(img1: HTMLImageElement, img2: HTMLImageElement, onLoadCallback: () => Promise<void>) {
+  let count = 0;
+  async function onLoad() {
+    count++;
+    if (count >= 2) {
+      await onLoadCallback();
+    }
+  }
+
+  img1.addEventListener('load', onLoad);
+  img2.addEventListener('load', onLoad);
+}
+
+function onTripleImageLoad(img1: HTMLImageElement, img2: HTMLImageElement, img3: HTMLImageElement, onLoadCallback: () => Promise<void>) {
+  let count = 0;
+  async function onLoad() {
+    count++;
+    if (count >= 3) {
+      await onLoadCallback();
+    }
+  }
+
+  img1.addEventListener('load', onLoad);
+  img2.addEventListener('load', onLoad);
+  img3.addEventListener('load', onLoad);
+}
+
+function onFourfoldImageLoad(img1: HTMLImageElement,
+                             img2: HTMLImageElement,
+                             img3: HTMLImageElement,
+                             img4: HTMLImageElement,
+                             onLoadCallback: () => Promise<void>) {
+  let count = 0;
+  async function onLoad() {
+    count++;
+    if (count >= 4) {
+      await onLoadCallback();
+    }
+  }
+
+  img1.addEventListener('load', onLoad);
+  img2.addEventListener('load', onLoad);
+  img3.addEventListener('load', onLoad);
+  img4.addEventListener('load', onLoad);
+}
+
+function onImageLoad(img: HTMLImageElement, onLoadCallback: () => Promise<void>) {
+  img.addEventListener('load', onLoadCallback);
+}
+
+function append(parent: HTMLElement, child: Node) {
+  parent.appendChild(child);
+}
+
+async function snapshot(target?: any, filename?: String, postfix?: boolean | string) {
+  window['__webf_sync_buffer__']();
+  return new Promise<void>((resolve, reject) => {
+    requestAnimationFrame(async () => {
+      try {
+        if (typeof target == 'number') {
+          await sleep(target);
+          target = null;
+        }
+        const element = target || document.documentElement;
+        await expectAsync(element.toBlob(1.0)).toMatchSnapshot(filename, postfix);
+        resolve();
+      } catch (e) {
+        reject(e);
+      }
+    });
+  });
+}
+
+function extractBase64Payload(raw: unknown): string {
+  let base64 = typeof raw === 'string' ? raw : String(raw ?? '');
+  base64 = base64.trim();
+
+  // Some bridges stringify return values (e.g. "method: ... return_value: ...").
+  const returnValueIndex = base64.indexOf('return_value:');
+  if (returnValueIndex !== -1) {
+    base64 = base64.slice(returnValueIndex + 'return_value:'.length).trim();
+  }
+
+  // Strip surrounding quotes if present.
+  if (
+    (base64.startsWith('"') && base64.endsWith('"')) ||
+    (base64.startsWith("'") && base64.endsWith("'"))
+  ) {
+    base64 = base64.slice(1, -1);
+  }
+
+  // Strip data URL prefix if present.
+  const dataUrlPrefix = 'data:image/png;base64,';
+  if (base64.startsWith(dataUrlPrefix)) {
+    base64 = base64.slice(dataUrlPrefix.length);
+  }
+
+  // Normalize base64url -> base64.
+  base64 = base64.replace(/-/g, '+').replace(/_/g, '/');
+
+  // Remove whitespace/newlines.
+  base64 = base64.replace(/\s+/g, '');
+
+  // Pad to a multiple of 4.
+  const mod = base64.length % 4;
+  if (mod === 2) base64 += '==';
+  else if (mod === 3) base64 += '=';
+
+  return base64;
+}
+
+function decodeBase64ToUint8Array(raw: unknown): Uint8Array {
+  const base64 = extractBase64Payload(raw);
+
+  // Browser-like env: prefer atob.
+  if (typeof atob === 'function') {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i) & 0xff;
+    }
+    return bytes;
+  }
+
+  // Node-like fallback.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const maybeBuffer: any = (globalThis as any).Buffer;
+  if (maybeBuffer) {
+    return new Uint8Array(maybeBuffer.from(base64, 'base64'));
+  }
+
+  throw new Error('No base64 decoder available (atob/Buffer).');
+}
+
+// Capture a screenshot from Flutter (includes overlays) and match against snapshot.
+// Optional crop rect: x, y, width, height (logical px in Flutter screenshot space).
+async function snapshotFlutter(x?: number, y?: number, w?: number, h?: number, filename?: String, postfix?: boolean | string) {
+  window['__webf_sync_buffer__']();
+  return new Promise<void>((resolve, reject) => {
+    requestAnimationFrame(async () => {
+      try {
+        let base64Png: any;
+        if (typeof x === 'number' && typeof y === 'number' && typeof w === 'number' && typeof h === 'number') {
+          base64Png = await webf.methodChannel.invokeMethod('captureFlutterScreenshot', x, y, w, h) as any;
+        } else {
+          base64Png = await webf.methodChannel.invokeMethod('captureFlutterScreenshot') as any;
+        }
+        if (!base64Png) {
+          throw new Error('captureFlutterScreenshot returned empty result');
+        }
+        const bytes = decodeBase64ToUint8Array(base64Png);
+        const blob = new Blob([bytes], { type: 'image/png' });
+        await expectAsync(Promise.resolve(blob)).toMatchSnapshot(filename, postfix);
+        resolve();
+      } catch (e) {
+        reject(e);
+      }
+    });
+  });
+}
+
+async function dismissFlutterOverlays() {
+  try {
+    await webf.methodChannel.invokeMethod('dismissFlutterOverlays');
+  } finally {
+    await nextFrames(2);
+  }
+}
+
+async function snapshotBody(target?: any, filename?: String, postfix?: boolean | string) {
+  window['__webf_sync_buffer__']();
+  return new Promise<void>((resolve, reject) => {
+    requestAnimationFrame(async () => {
+      try {
+        if (typeof target == 'number') {
+          await sleep(target);
+        }
+        await expectAsync(document.body.toBlob(1.0)).toMatchSnapshot(filename, postfix);
+        resolve();
+      } catch (e) {
+        reject(e);
+      }
+    });
+  });
+}
+
+async function waitForOnScreen(target: any) {
+  return new Promise<void>((resolve, reject) => {
+    target.addEventListener('onscreen', () => {
+      resolve();
+    });
+  });
+}
+
+async function waitForFrame() {
+  return new Promise<void>((resolve, reject) => {
+    requestAnimationFrame(() => resolve());
+  });
+}
+
+async function takeFlutterError(): Promise<string | null> {
+  const result = (await webf.methodChannel.invokeMethod('takeFlutterError')) as any;
+  if (result == null) return null;
+  const text = String(result);
+  return text.length === 0 ? null : text;
+}
+
+async function clearFlutterError(): Promise<void> {
+  await webf.methodChannel.invokeMethod('clearFlutterError');
+}
+
+let snapshotBlob: Blob | undefined
+
+afterEach(() => {
+  snapshotBlob = undefined;
+})
+
+async function getSnapshot(target?: any) {
+  await nextFrames();
+  return target && target.toBlob ? target.toBlob(1.0) : document.documentElement.toBlob(1.0);
+}
+
+async function cacheSnapshot(target?: any) {
+  snapshotBlob = await getSnapshot(target)
+}
+
+async function matchCacheSnapshot(target?: any) {
+  if (!snapshotBlob) {
+    throw new Error(`Must be call cacheSnapshot before matchCacheSnapshot`)
+  }
+  await expectAsync(getSnapshot()).toMatchSnapshot(snapshotBlob)
+}
+
+/**
+ * Create test that a CSS property computes to the expected value.
+ * The document element #target is used to perform the test.
+ *
+ * @param {string} property  The name of the CSS property being tested.
+ * @param {string} specified A specified value for the property.
+ * @param {string|array} computed  The expected computed value,
+ *                                 or an array of permitted computed value.
+ *                                 If omitted, defaults to specified.
+ */
+function test_computed_value(property: string, specified: string, computed: string = specified) {
+
+    const target = document.getElementById('target');
+    expect(target).not.toBeNull();
+    target?.style?.setProperty(property, '');
+    target?.style?.setProperty(property, specified);
+
+    let readValue = getComputedStyle(target!)[property];
+    expect(readValue).toEqual(computed);
+}
+
+// -1 is reset
+function resizeViewport(width: number = -1, height: number = -1) {
+  // In WebF integration tests, viewport resize is implemented by constraining
+  // the Flutter widget (via a method channel) and then propagating the new size
+  // to the native engine. That propagation is asynchronous (debounced + flushed
+  // after a frame), so waiting for a `resize` event makes subsequent assertions
+  // and snapshots deterministic.
+  const waitForResizeEvent = (timeoutMs: number) => {
+    return new Promise<void>((resolve) => {
+      let settled = false;
+      const done = () => {
+        if (settled) return;
+        settled = true;
+        window.removeEventListener('resize', onResize);
+        resolve();
+      };
+      const onResize = () => done();
+      window.addEventListener('resize', onResize);
+      originalTimeout(done, timeoutMs);
+    });
+  };
+
+  const resizeEventPromise = waitForResizeEvent(2000);
+  return webf.methodChannel.invokeMethod('resizeViewport', width, height).then(async () => {
+    await resizeEventPromise;
+    // Ensure layout/paint catches up before continuing.
+    await nextFrames(2);
+  });
+}
+
+// Compatible to tests that use global variables.
+Object.assign(global, {
+  append,
+  setAttributes,
+  createElement,
+  createElementWithStyle,
+  createText,
+  createViewElement,
+  setElementStyle,
+  setElementProps,
+  simulateSwipe,
+  simulateClick,
+  sleep,
+  nextFrames,
+  snapshot,
+  snapshotFlutter,
+  dismissFlutterOverlays,
+  snapshotBody,
+  test,
+  ftest,
+  xtest,
+  assert_equals,
+  assert_true,
+  format_value,
+  assert_array_equals,
+  assert_false,
+  assert_not_equals,
+  assert_throws_exactly,
+  assert_class_string,
+  assert_approx_equals,
+  simulatePointDown,
+  simulatePointUp,
+  simulatePointRemove,
+  simulatePointAdd,
+  simulatePointMove,
+  test_computed_value,
+  resizeViewport,
+  cacheSnapshot,
+  matchCacheSnapshot,
+  getSnapshot,
+  onTripleImageLoad,
+  onImageLoad,
+  onFourfoldImageLoad,
+  onDoubleImageLoad,
+  waitForOnScreen,
+  waitForFrame,
+  takeFlutterError,
+  clearFlutterError
+});

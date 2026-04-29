@@ -1,0 +1,312 @@
+/*
+ * Copyright (C) 2024-present The OpenWebF Company. All rights reserved.
+ * Licensed under GNU GPL with Enterprise exception.
+ */
+/*
+ * Copyright (C) 2022-2024 The WebF authors. All rights reserved.
+ */
+
+import 'dart:collection';
+
+import 'package:flutter_silkweb/css.dart';
+import 'package:flutter_silkweb/dom.dart';
+import 'package:flutter_silkweb/foundation.dart';
+
+typedef CSSMap = HashMap<String, List<CSSRule>>;
+
+class RuleSet {
+  final Document ownerDocument;
+  RuleSet(this.ownerDocument);
+
+  final CascadeLayerTree layerTree = CascadeLayerTree();
+
+  bool get isEmpty =>
+      idRules.isEmpty &&
+      classRules.isEmpty &&
+      attributeRules.isEmpty &&
+      tagRules.isEmpty &&
+      universalRules.isEmpty &&
+      pseudoRules.isEmpty &&
+      keyframesRules.isEmpty;
+
+  final CSSMap idRules = HashMap();
+  final CSSMap classRules = HashMap();
+  final CSSMap attributeRules = HashMap();
+  final CSSMap tagRules = HashMap();
+  final List<CSSRule> universalRules = [];
+  final List<CSSRule> pseudoRules = [];
+
+  final Map<String, CSSKeyframesRule> keyframesRules = {};
+  bool hasHasPseudo = false;
+  bool hasHoverPseudo = false;
+  bool hasActivePseudo = false;
+
+  int _lastPosition = 0;
+
+  void addRules(List<CSSRule> rules, {required String? baseHref}) {
+    for (CSSRule rule in rules) {
+      addRule(rule, baseHref: baseHref);
+    }
+  }
+
+  void addRule(CSSRule rule, {required String? baseHref}) {
+    rule.position = _lastPosition++;
+    if (rule is CSSLayerStatementRule) {
+      layerTree.declareAll(rule.layerNamePaths);
+      return;
+    }
+    if (rule is CSSLayerBlockRule) {
+      // Ensure the layer is declared even if the block is empty.
+      if (rule.layerNamePath.isNotEmpty) {
+        layerTree.declare(rule.layerNamePath);
+      }
+      // Add child rules in document order.
+      addRules(rule.cssRules, baseHref: baseHref);
+      return;
+    }
+    if (rule is CSSStyleRule) {
+      if (rule.layerPath.isNotEmpty) {
+        rule.layerOrderKey = layerTree.declare(rule.layerPath);
+      } else {
+        rule.layerOrderKey = null;
+      }
+      if (!hasHasPseudo) {
+        for (final selector in rule.selectorGroup.selectors) {
+          if (_selectorContainsHas(selector)) {
+            hasHasPseudo = true;
+            break;
+          }
+        }
+      }
+      if (!hasHoverPseudo) {
+        for (final selector in rule.selectorGroup.selectors) {
+          if (_selectorContainsPseudoClass(selector, 'hover')) {
+            hasHoverPseudo = true;
+            break;
+          }
+        }
+      }
+      if (!hasActivePseudo) {
+        for (final selector in rule.selectorGroup.selectors) {
+          if (_selectorContainsPseudoClass(selector, 'active')) {
+            hasActivePseudo = true;
+            break;
+          }
+        }
+      }
+      for (final selector in rule.selectorGroup.selectors) {
+        findBestRuleSetAndAdd(selector, rule);
+      }
+    } else if (rule is CSSKeyframesRule) {
+      keyframesRules[rule.name] = rule;
+    } else if (rule is CSSFontFaceRule) {
+      CSSFontFace.resolveFontFaceRules(
+          rule, ownerDocument.contextId!, baseHref);
+    } else if (rule is CSSMediaDirective) {
+      // doNothing
+    } else if (rule is CSSImportRule) {
+      // @import rules are resolved and flattened during stylesheet load.
+      // Ignore any leftover import rules.
+    } else {
+      // Unknown at-rule (e.g. @counter-style, @property, @scope) — ignore in
+      // production instead of asserting, so third-party CSS loads cleanly.
+      cssLogger.warning('Unsupported rule type: ${rule.runtimeType}');
+    }
+  }
+
+  void reset() {
+    idRules.clear();
+    classRules.clear();
+    attributeRules.clear();
+    tagRules.clear();
+    universalRules.clear();
+    pseudoRules.clear();
+    keyframesRules.clear();
+    hasHasPseudo = false;
+    hasHoverPseudo = false;
+    hasActivePseudo = false;
+    layerTree.reset();
+    _lastPosition = 0;
+  }
+
+  // indexed by selectorText
+  void findBestRuleSetAndAdd(Selector selector, CSSRule rule) {
+    // Enforce CSS rule: a pseudo-element must be the last simple selector
+    // in a compound selector. If any simple selector appears after a
+    // pseudo-element, the selector is invalid and must not match.
+    final List<SimpleSelectorSequence> seqs = selector.simpleSelectorSequences;
+    for (int i = 0; i < seqs.length; i++) {
+      final s = seqs[i].simpleSelector;
+      if (s is PseudoElementSelector || s is PseudoElementFunctionSelector) {
+        if (i != seqs.length - 1) {
+          // Invalid selector like `P:first-line.three`; drop this rule.
+          return;
+        }
+        break;
+      }
+    }
+
+    // Choose the best indexing key from the RIGHTMOST COMPOUND only, with
+    // priority: id > class > attribute > tag > legacy pseudo > universal.
+    // Build the rightmost compound by walking from the end until a combinator
+    // boundary.
+    final List<SimpleSelector> rightmost = <SimpleSelector>[];
+    for (final seq in seqs.reversed) {
+      rightmost.add(seq.simpleSelector);
+      if (seq.combinator != TokenKind.COMBINATOR_NONE) break;
+    }
+
+    String? id;
+    String? className;
+    String? attributeName;
+    String? tagName;
+    String? legacyPseudo;
+
+    // Scan for best key across the compound (no early break on pseudo).
+    for (final simple in rightmost) {
+      if (simple is IdSelector) {
+        id ??= simple.name;
+      } else if (simple is ClassSelector) {
+        className ??= simple.name;
+      } else if (simple is AttributeSelector) {
+        attributeName ??= simple.name;
+      } else if (simple is ElementSelector && !simple.isWildcard) {
+        tagName ??= simple.name;
+      } else if (simple is PseudoClassSelector ||
+          simple is PseudoElementSelector) {
+        final name = (simple as dynamic).name as String; // both have name
+        if (_isLegacyPsuedoClass(name)) legacyPseudo ??= name;
+      } else if (simple is PseudoClassFunctionSelector) {
+        // ignore function pseudos for bucketing
+      } else if (simple is NegationSelector) {
+        // ignore :not() for bucketing; prefer other keys if present
+      }
+    }
+
+    void insertRule(String key, CSSRule rule, CSSMap map) {
+      List<CSSRule>? rules = map[key] ?? [];
+      rules.add(rule);
+      map[key] = rules;
+    }
+
+    if (id != null && id.isNotEmpty) {
+      insertRule(id, rule, idRules);
+      return;
+    }
+
+    if (className != null && className.isNotEmpty) {
+      insertRule(className, rule, classRules);
+      return;
+    }
+
+    if (attributeName != null && attributeName.isNotEmpty) {
+      insertRule(attributeName.toUpperCase(), rule, attributeRules);
+      return;
+    }
+
+    if (tagName != null && tagName.isNotEmpty) {
+      insertRule(tagName.toUpperCase(), rule, tagRules);
+      return;
+    }
+
+    if (legacyPseudo != null) {
+      pseudoRules.add(rule);
+      return;
+    }
+
+    universalRules.add(rule);
+  }
+
+  bool _selectorContainsHas(Selector selector) {
+    for (final seq in selector.simpleSelectorSequences) {
+      if (_simpleSelectorContainsHas(seq.simpleSelector)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool _selectorContainsPseudoClass(Selector selector, String pseudoClassName) {
+    for (final seq in selector.simpleSelectorSequences) {
+      if (_simpleSelectorContainsPseudoClass(
+          seq.simpleSelector, pseudoClassName)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool _simpleSelectorContainsHas(SimpleSelector selector) {
+    if (selector is PseudoClassFunctionSelector) {
+      final String name = selector.name.toLowerCase();
+      if (name == 'has') {
+        return true;
+      }
+      final dynamic arg = selector.argument;
+      if (arg is SelectorGroup) {
+        for (final sel in arg.selectors) {
+          if (_selectorContainsHas(sel)) {
+            return true;
+          }
+        }
+      } else if (arg is Selector) {
+        if (_selectorContainsHas(arg)) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    if (selector is NegationSelector) {
+      final SimpleSelector? neg = selector.negationArg;
+      if (neg == null) return false;
+      return _simpleSelectorContainsHas(neg);
+    }
+
+    return false;
+  }
+
+  bool _simpleSelectorContainsPseudoClass(
+      SimpleSelector selector, String pseudoClassName) {
+    if (selector is PseudoClassSelector) {
+      return selector.name.toLowerCase() == pseudoClassName;
+    }
+
+    if (selector is PseudoClassFunctionSelector) {
+      final dynamic arg = selector.argument;
+      if (arg is SelectorGroup) {
+        for (final sel in arg.selectors) {
+          if (_selectorContainsPseudoClass(sel, pseudoClassName)) {
+            return true;
+          }
+        }
+      } else if (arg is Selector) {
+        return _selectorContainsPseudoClass(arg, pseudoClassName);
+      }
+      return false;
+    }
+
+    if (selector is NegationSelector) {
+      final SimpleSelector? neg = selector.negationArg;
+      if (neg == null) return false;
+      return _simpleSelectorContainsPseudoClass(neg, pseudoClassName);
+    }
+
+    return false;
+  }
+
+  static bool _isLegacyPsuedoClass(String name) {
+    // TODO: :first-letter/line match elements.
+    switch (name) {
+      case 'before':
+      case 'after':
+      case 'first-letter':
+      case 'first-line':
+      case 'placeholder':
+      case 'selection':
+        return true;
+      default:
+        return false;
+    }
+  }
+}

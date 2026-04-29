@@ -1,0 +1,376 @@
+/*
+ * Copyright (C) 2024-present The OpenWebF Company. All rights reserved.
+ * Licensed under GNU GPL with Enterprise exception.
+ */
+/*
+ * Copyright (C) 2019-2022 The Kraken authors. All rights reserved.
+ * Copyright (C) 2022-2024 The WebF authors. All rights reserved.
+ */
+#include "script_value.h"
+
+#include <core/platform/geometry/dom_matrix.h>
+#include <core/platform/geometry/dom_point.h>
+#include <core/html/canvas/canvas_gradient.h>
+#include <core/html/canvas/canvas_pattern.h>
+#include <core/html/canvas/text_metrics.h>
+// #include "core/css/computed_css_style_declaration.h"
+#include "core/css/legacy/legacy_computed_css_style_declaration.h"
+#include <quickjs/quickjs.h>
+#include <vector>
+#include "bindings/qjs/converter_impl.h"
+#include "core/binding_object.h"
+#include "core/dart_binding_object.h"
+#include "core/executing_context.h"
+#include "core/js_function_ref.h"
+#include "cppgc/gc_visitor.h"
+#include "foundation/native_byte_data.h"
+#include "foundation/native_value_converter.h"
+#include "native_string_utils.h"
+#include "qjs_bounding_client_rect.h"
+#include "qjs_event_target.h"
+
+#if defined(_WIN32)
+#include <Windows.h>
+#endif
+
+namespace webf {
+
+static JSValue FromNativeValue(ExecutingContext* context,
+                               const NativeValue& native_value,
+                               bool shared_js_value = false) {
+  switch (native_value.tag) {
+    case NativeTag::TAG_STRING: {
+      if (shared_js_value) {
+        auto* string = static_cast<SharedNativeString*>(native_value.u.ptr);
+        if (string == nullptr)
+          return JS_NULL;
+        JSValue returnedValue = JS_NewUnicodeString(context->ctx(), string->string(), string->length());
+        return returnedValue;
+      } else {
+        std::unique_ptr<AutoFreeNativeString> string{static_cast<AutoFreeNativeString*>(native_value.u.ptr)};
+        if (string == nullptr)
+          return JS_NULL;
+        JSValue returnedValue = JS_NewUnicodeString(context->ctx(), string->string(), string->length());
+        return returnedValue;
+      }
+    }
+    case NativeTag::TAG_INT: {
+      return JS_NewInt64(context->ctx(), native_value.u.int64);
+    }
+    case NativeTag::TAG_BOOL: {
+      return JS_NewBool(context->ctx(), native_value.u.int64 == 1);
+    }
+    case NativeTag::TAG_FLOAT64: {
+      return JS_NewFloat64(context->ctx(), native_value.u.float64);
+    }
+    case NativeTag::TAG_NULL: {
+      return JS_NULL;
+    }
+    case NativeTag::TAG_UNDEFINED: {
+      return JS_UNDEFINED;
+    }
+    case NativeTag::TAG_UINT8_BYTES: {
+      auto free_func = [](JSRuntime* rt, void* opaque, void* ptr) {
+#if defined(_WIN32)
+        return CoTaskMemFree(ptr);
+#else
+        return free(ptr);
+#endif
+      };
+
+      return JS_NewArrayBuffer(context->ctx(), (uint8_t*)native_value.u.ptr, native_value.uint32, free_func, nullptr,
+                               0);
+    }
+    case NativeTag::TAG_LIST: {
+      size_t length = native_value.uint32;
+      auto* arr = static_cast<NativeValue*>(native_value.u.ptr);
+      JSValue array = JS_NewArray(context->ctx());
+      JS_SetPropertyStr(context->ctx(), array, "length", Converter<IDLInt64>::ToValue(context->ctx(), length));
+      for (int i = 0; i < length; i++) {
+        JSValue value = FromNativeValue(context, arr[i], shared_js_value);
+        JS_SetPropertyInt64(context->ctx(), array, i, value);
+      }
+      if (!shared_js_value && arr != nullptr) {
+        dart_free(arr);
+      }
+      return array;
+    }
+    case NativeTag::TAG_JSON: {
+      auto* str = static_cast<const char*>(native_value.u.ptr);
+      JSValue returnedValue = JS_ParseJSON(context->ctx(), str, strlen(str), "");
+      dart_free(const_cast<char*>(str));
+      return returnedValue;
+    }
+    case NativeTag::TAG_POINTER: {
+      auto* ptr = static_cast<NativeBindingObject*>(native_value.u.ptr);
+      auto pointer_type = static_cast<JSPointerType>(native_value.uint32);
+
+      switch (pointer_type) {
+        case JSPointerType::NativeBindingObject: {
+          auto* binding_object = BindingObject::From(ptr);
+          if (binding_object != nullptr) {
+            return binding_object->ToQuickJS();
+          }
+          // NativeBindingObject pointers can be allocated on the Dart side (e.g.
+          // returned from a Dart binding property/method). In that case there is
+          // no existing C++ BindingObject wrapper yet; create a DartBindingObject
+          // wrapper on-demand so JS can access Dart-defined properties/methods.
+          return MakeGarbageCollected<DartBindingObject>(context, ptr)->ToQuickJS();
+        }
+        case JSPointerType::DOMMatrix: {
+          return MakeGarbageCollected<DOMMatrix>(context, ptr)->ToQuickJS();
+        }
+        case JSPointerType::BoundingClientRect: {
+          return MakeGarbageCollected<BoundingClientRect>(context, ptr)->ToQuickJS();
+        }
+        case JSPointerType::Screen: {
+          return MakeGarbageCollected<Screen>(context, ptr)->ToQuickJS();
+        }
+        case JSPointerType::TextMetrics: {
+          return MakeGarbageCollected<TextMetrics>(context, ptr)->ToQuickJS();
+        }
+        case JSPointerType::ComputedCSSStyleDeclaration: {
+          if (context->isBlinkEnabled()) {
+            return MakeGarbageCollected<ComputedCssStyleDeclaration>(context, ptr)->ToQuickJS();
+          }
+          return MakeGarbageCollected<legacy::LegacyComputedCssStyleDeclaration>(context, ptr)->ToQuickJS();
+        }
+        case JSPointerType::DOMPoint: {
+          return MakeGarbageCollected<DOMPoint>(context, ptr)->ToQuickJS();
+        }
+        case JSPointerType::CanvasGradient: {
+          return MakeGarbageCollected<CanvasGradient>(context, ptr)->ToQuickJS();
+        }
+        case JSPointerType::CanvasPattern: {
+          return MakeGarbageCollected<CanvasPattern>(context, ptr)->ToQuickJS();
+        }
+        case JSPointerType::Others: {
+          return JS_DupValue(context->ctx(), JS_MKPTR(JS_TAG_OBJECT, ptr));
+        }
+        case JSPointerType::NativeByteData:
+          break;
+      }
+      return JS_NULL;
+    }
+  }
+  return JS_NULL;
+}
+
+ScriptValue::ScriptValue(JSContext* ctx, const NativeValue& native_value, bool shared_js_value)
+    : runtime_(JS_GetRuntime(ctx)),
+      value_(FromNativeValue(ExecutingContext::From(ctx), native_value, shared_js_value)) {}
+
+ScriptValue ScriptValue::CreateErrorObject(JSContext* ctx, const char* errmsg) {
+  JS_ThrowInternalError(ctx, "%s", errmsg);
+  JSValue errorObject = JS_GetException(ctx);
+  ScriptValue result = ScriptValue(ctx, errorObject);
+  JS_FreeValue(ctx, errorObject);
+  return result;
+}
+
+ScriptValue ScriptValue::CreateJsonObject(JSContext* ctx, const char* jsonString, size_t length) {
+  JSValue jsonValue = JS_ParseJSON(ctx, jsonString, length, "");
+  ScriptValue result = ScriptValue(ctx, jsonValue);
+  JS_FreeValue(ctx, jsonValue);
+  return result;
+}
+
+ScriptValue ScriptValue::Empty(JSContext* ctx) {
+  return ScriptValue(ctx);
+}
+
+ScriptValue ScriptValue::Undefined(JSContext* ctx) {
+  return ScriptValue(ctx, JS_UNDEFINED);
+}
+
+ScriptValue::ScriptValue(const ScriptValue& value) {
+  if (&value != this) {
+    value_ = JS_DupValueRT(value.runtime_, value.value_);
+  }
+  runtime_ = value.runtime_;
+}
+ScriptValue& ScriptValue::operator=(const ScriptValue& value) {
+  if (&value != this) {
+    JS_FreeValueRT(runtime_, value_);
+    runtime_ = value.runtime_;
+    value_ = JS_DupValueRT(runtime_, value.value_);
+  }
+  return *this;
+}
+
+ScriptValue::ScriptValue(ScriptValue&& value) noexcept : value_(value.value_), runtime_(value.runtime_)  {
+  value.value_ = JS_NULL;
+}
+ScriptValue& ScriptValue::operator=(ScriptValue&& value) noexcept {
+  if (&value != this) {
+    JS_FreeValueRT(runtime_, value_);
+    value_ = value.value_;
+    runtime_ = value.runtime_;
+    value.value_ = JS_NULL;
+  }
+  return *this;
+}
+
+JSValue ScriptValue::QJSValue() const {
+  return value_;
+}
+
+ScriptValue ScriptValue::ToJSONStringify(JSContext* ctx, ExceptionState* exception) const {
+  JSValue stringifyed = JS_JSONStringify(ctx, value_, JS_NULL, JS_NULL);
+  ScriptValue result = ScriptValue(ctx, stringifyed);
+  // JS_JSONStringify may return JS_EXCEPTION if object is not valid. Return JS_EXCEPTION and let quickjs to handle it.
+  if (result.IsException()) {
+    exception->ThrowException(ctx, result.value_);
+    result = ScriptValue::Empty(ctx);
+  }
+  JS_FreeValue(ctx, stringifyed);
+  return result;
+}
+
+String ScriptValue::ToString(JSContext* ctx) const {
+  return {ctx, value_};
+}
+
+AtomicString ScriptValue::ToAtomicString(JSContext* ctx) const {
+  return {ctx, value_};
+}
+
+AtomicString ScriptValue::ToLegacyDOMString(JSContext* ctx) const {
+  if (JS_IsNull(value_)) {
+    return AtomicString::Empty();
+  }
+  return {ctx, value_};
+}
+
+std::unique_ptr<SharedNativeString> ScriptValue::ToNativeString(JSContext* ctx) const {
+  return ToAtomicString(ctx).ToNativeString();
+}
+
+namespace {}  // namespace
+
+NativeValue ScriptValue::ToNative(JSContext* ctx, ExceptionState& exception_state, bool shared_js_value) const {
+  int8_t tag = JS_VALUE_GET_TAG(value_);
+
+  switch (tag) {
+    case JS_TAG_NULL:
+    case JS_TAG_UNDEFINED:
+      return Native_NewNull();
+    case JS_TAG_BOOL:
+      return Native_NewBool(JS_ToBool(ctx, value_));
+    case JS_TAG_FLOAT64: {
+      double v;
+      JS_ToFloat64(ctx, &v, value_);
+      return Native_NewFloat64(v);
+    }
+    case JS_TAG_INT: {
+      int32_t v;
+      JS_ToInt32(ctx, &v, value_);
+      return Native_NewInt64(v);
+    }
+    case JS_TAG_STRING:
+      // NativeString owned by NativeValue will be freed by users.
+      return NativeValueConverter<NativeTypeString>::ToNativeValue(ctx, ToAtomicString(ctx));
+    case JS_TAG_OBJECT: {
+      if (!shared_js_value && JS_IsFunction(ctx, value_)) {
+        auto* context = ExecutingContext::From(ctx);
+        if (!context || !context->IsContextValid()) {
+          return Native_NewNull();
+        }
+
+        auto* function_ref = new NativeJSFunctionRef();
+        function_ref->context_status = context->status();
+        function_ref->dispatcher = context->dartIsolateContext()->dispatcher().get();
+        function_ref->context_id = static_cast<int32_t>(context->contextId());
+        function_ref->is_dedicated = context->isDedicated();
+        function_ref->ctx = ctx;
+        function_ref->function = JS_DupValue(ctx, value_);
+
+        context->RegisterJSFunctionRef(function_ref);
+
+        NativeValue native_value{};
+        native_value.tag = NativeTag::TAG_FUNCTION;
+        native_value.u.ptr = function_ref;
+        native_value.uint32 = 0;
+        return native_value;
+      }
+
+      if (JS_IsArrayBuffer(value_)) {
+        size_t byte_len;
+        uint8_t* bytes = JS_GetArrayBuffer(ctx, &byte_len, value_);
+
+        return NativeValueConverter<NativeTypePointer<uint8_t>>::ToNativeValue(ctx, value_, bytes, byte_len);
+      } else if (JS_IsArray(ctx, value_)) {
+        std::vector<ScriptValue> values = Converter<IDLSequence<IDLAny>>::FromValue(ctx, value_, ASSERT_NO_EXCEPTION());
+        auto* result = new NativeValue[values.size()];
+        for (int i = 0; i < values.size(); i++) {
+          result[i] = values[i].ToNative(ctx, exception_state, shared_js_value);
+        }
+        return Native_NewList(values.size(), result);
+      } else if (JS_IsObject(value_)) {
+        if (QJSEventTarget::HasInstance(ExecutingContext::From(ctx), value_)) {
+          auto* event_target = toScriptWrappable<EventTarget>(value_);
+          return Native_NewPtr(JSPointerType::NativeBindingObject, event_target->bindingObject());
+        }
+
+        if (shared_js_value) {
+          return Native_NewPtr(JSPointerType::Others, JS_VALUE_GET_PTR(value_));
+        }
+
+        JSClassID class_id = JS_GetClassID(value_);
+        auto* raw_binding_object = toScriptWrappable<ScriptWrappable>(value_);
+        if (IsWebFDefinedClass(class_id) && raw_binding_object != nullptr && raw_binding_object->IsBindingObject()) {
+          auto* binding_object = static_cast<BindingObject*>(raw_binding_object);
+          return Native_NewPtr(JSPointerType::NativeBindingObject, binding_object->bindingObject());
+        }
+
+        return NativeValueConverter<NativeTypeJSON>::ToNativeValue(ctx, *this, exception_state);
+      }
+    }
+    default:
+      return Native_NewNull();
+  }
+}
+
+double ScriptValue::ToDouble(JSContext* ctx) const {
+  double v;
+  JS_ToFloat64(ctx, &v, value_);
+  return v;
+}
+
+bool ScriptValue::IsException() const {
+  return JS_IsException(value_);
+}
+
+bool ScriptValue::IsEmpty() const {
+  return JS_IsNull(value_) || JS_IsUndefined(value_);
+}
+
+bool ScriptValue::IsObject() const {
+  return JS_IsObject(value_);
+}
+
+bool ScriptValue::IsString() const {
+  return JS_IsString(value_);
+}
+
+bool ScriptValue::IsNull() const {
+  return JS_IsNull(value_);
+}
+
+bool ScriptValue::IsUndefined() const {
+  return JS_IsUndefined(value_);
+}
+
+bool ScriptValue::IsBool() const {
+  return JS_IsBool(value_);
+}
+
+bool ScriptValue::IsNumber() const {
+  return JS_IsNumber(value_);
+}
+
+void ScriptValue::Trace(GCVisitor* visitor) const {
+  visitor->TraceValue(value_);
+}
+
+}  // namespace webf

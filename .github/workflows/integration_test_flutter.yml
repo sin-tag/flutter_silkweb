@@ -1,0 +1,114 @@
+name: Integration Test
+
+on: [workflow_dispatch, pull_request]
+
+env:
+  nodeVersion: "16"
+  cmakeVersion: "4.0.3"
+  flutter: "3.38.0"
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  setup:
+    runs-on: [self-hosted, macOS, ARM64, Integration]
+    outputs:
+      matrix: ${{ steps.matrix.outputs.value }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      - run: npm i
+      - id: matrix
+        run: |
+          JSON=$(node -e "console.log(JSON.stringify(require('json5').parse(fs.readFileSync('./integration_tests/spec_group.json5')).map(j=>j.name)))")
+          echo "::set-output name=value::$(echo $JSON)"
+  build_bridge:
+    runs-on: [self-hosted, macOS, ARM64, Integration]
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: recursive
+    - uses: actions/setup-node@v2
+      with:
+        node-version: ${{ env.nodeVersion }}
+    - uses: jwlawson/actions-setup-cmake@v2
+      with:
+        cmake-version: ${{ env.cmakeVersion }}
+    - run: npm i
+    - run: brew install gperf
+    - run: npm run build:bridge:macos
+    - uses: actions/upload-artifact@v4
+      with:
+        name: macos_bridge_binary
+        path: bridge/build/macos/
+
+  bridge_unit_test:
+    runs-on: [self-hosted, macOS, ARM64, Integration]
+    needs: [ setup, build_bridge ]
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: recursive
+    - uses: actions/setup-node@v2
+      with:
+        node-version: ${{ env.nodeVersion }}
+    - uses: actions/download-artifact@v4
+      with:
+        name: macos_bridge_binary
+        path: bridge/build/macos/
+    - run: npm i
+    - run: chmod +x ./bridge/build/macos/lib/universal/webf_unit_test
+    - run: node scripts/run_bridge_unit_test.js
+
+  webf_unit_test:
+    runs-on: [self-hosted, macOS, ARM64, Integration]
+    needs: [ setup, build_bridge ]
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: recursive
+    - uses: subosito/flutter-action@v2
+      with:
+        flutter-version: ${{ env.flutter }}
+    - run: flutter config --enable-macos-desktop
+    - uses: actions/download-artifact@v4
+      with:
+        name: macos_bridge_binary
+        path: bridge/build/macos/
+    - run: cd webf && flutter test
+
+  integration_test:
+    runs-on: [self-hosted, macOS, ARM64, Integration]
+    needs: [ setup, build_bridge ]
+    strategy:
+      fail-fast: false
+      matrix:
+        value: ${{fromJson(needs.setup.outputs.matrix)}}
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: recursive
+    - uses: actions/setup-node@v2
+      with:
+        node-version: ${{ env.nodeVersion }}
+    - uses: subosito/flutter-action@v2
+      with:
+        flutter-version: ${{ env.flutter }}
+    - run: flutter config --enable-macos-desktop
+    - uses: actions/download-artifact@v4
+      with:
+        name: macos_bridge_binary
+        path: bridge/build/macos/
+    - run: cd integration_tests && npm i
+    - name: Run Test
+      run: cd integration_tests && CI=true SPEC_SCOPE="${{ matrix.value }}" npm run integration
+      id: test
+      continue-on-error: true
+    - uses: actions/upload-artifact@v4
+      if: steps.test.outcome != 'success'
+      with:
+        name: integration_${{ matrix.value }}_snapshots
+        path: integration_tests/snapshots
+    - name: Check on failures
+      if: steps.test.outcome != 'success'
+      run: exit 1

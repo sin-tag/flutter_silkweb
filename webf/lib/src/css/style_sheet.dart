@@ -1,0 +1,137 @@
+/*
+ * Copyright (C) 2024-present The OpenWebF Company. All rights reserved.
+ * Licensed under GNU GPL with Enterprise exception.
+ */
+/*
+ * Copyright (C) 2019-2022 The Kraken authors. All rights reserved.
+ * Copyright (C) 2022-2024 The WebF authors. All rights reserved.
+ */
+import 'package:flutter_silkweb/css.dart';
+
+abstract class StyleSheet {}
+
+const String _cssStyleSheetType = 'text/css';
+
+// https://drafts.csswg.org/cssom-1/#cssstylesheet
+class CSSStyleSheet implements StyleSheet, Comparable {
+  String type = _cssStyleSheetType;
+
+  /// A Boolean indicating whether the stylesheet is disabled. False by default.
+  bool disabled = false;
+
+  /// A string containing the baseURL used to resolve relative URLs in the stylesheet.
+  String? href;
+
+  final List<CSSRule> cssRules;
+
+  CSSStyleSheet(this.cssRules, {this.disabled = false, this.href});
+
+  int insertRule(
+    String text,
+    int index, {
+    required double windowWidth,
+    required double windowHeight,
+    required bool isDarkMode,
+  }) {
+    // Parse with this stylesheet's href so relative URLs in inserted rules
+    // resolve against the stylesheet URL, not the document URL.
+    List<CSSRule> rules = CSSParser(text, href: href).parseRules(
+        windowWidth: windowWidth,
+        windowHeight: windowHeight,
+        isDarkMode: isDarkMode);
+    if (index < 0 || index > cssRules.length) {
+      throw RangeError.index(index, cssRules, 'index');
+    }
+    cssRules.insertAll(index, rules);
+    for (final rule in rules) {
+      _assignParentStyleSheetRecursive(rule, this);
+    }
+    return index;
+  }
+
+  /// Removes a rule from the stylesheet object.
+  deleteRule(int index) {
+    cssRules.removeAt(index);
+  }
+
+  /// Synchronously replaces the content of the stylesheet with the content passed into it.
+  replaceSync(String text,
+      {required double windowWidth,
+      required double windowHeight,
+      required bool? isDarkMode}) {
+    cssRules.clear();
+    // Preserve href so relative URLs continue to resolve correctly after replace.
+    List<CSSRule> rules = CSSParser(text, href: href).parseRules(
+        windowWidth: windowWidth,
+        windowHeight: windowHeight,
+        isDarkMode: isDarkMode);
+    cssRules.addAll(rules);
+    for (final rule in rules) {
+      _assignParentStyleSheetRecursive(rule, this);
+    }
+  }
+
+  int get structuralHashCode => Object.hash(
+        type,
+        disabled,
+        href,
+        cssRuleListStructuralHash(cssRules),
+      );
+
+  bool structurallyEquals(CSSStyleSheet other) {
+    if (identical(this, other)) return true;
+    return type == other.type &&
+        disabled == other.disabled &&
+        href == other.href &&
+        cssRuleListsStructurallyEqual(cssRules, other.cssRules);
+  }
+
+  CSSStyleSheet clone() {
+    final clonedRules = cssRules.map(_cloneRuleForDiff).toList(growable: false);
+    CSSStyleSheet sheet =
+        CSSStyleSheet(List.from(clonedRules), disabled: disabled, href: href);
+    for (final rule in sheet.cssRules) {
+      _assignParentStyleSheetRecursive(rule, sheet);
+    }
+    return sheet;
+  }
+
+  @override
+  int compareTo(other) {
+    if (other is! CSSStyleSheet) {
+      return 0;
+    }
+    return structuralHashCode.compareTo(other.structuralHashCode);
+  }
+
+  static void _assignParentStyleSheetRecursive(
+      CSSRule rule, CSSStyleSheet sheet) {
+    rule.parentStyleSheet = sheet;
+    if (rule is CSSLayerBlockRule) {
+      for (final child in rule.cssRules) {
+        _assignParentStyleSheetRecursive(child, sheet);
+      }
+    }
+  }
+
+  static CSSRule _cloneRuleForDiff(CSSRule rule) {
+    // Most rule objects are immutable after parsing and safe to share between
+    // snapshots. Layer blocks can be mutated via CSSOM (insertRule/deleteRule),
+    // so they must be deep-copied to ensure change detection works.
+    if (rule is CSSLayerBlockRule) {
+      return CSSLayerBlockRule(
+        name: rule.name,
+        layerNamePath: List<String>.from(rule.layerNamePath),
+        cssRules: rule.cssRules.map(_cloneRuleForDiff).toList(growable: false),
+      );
+    }
+    if (rule is CSSLayerStatementRule) {
+      return CSSLayerStatementRule(
+        rule.layerNamePaths
+            .map((p) => List<String>.from(p))
+            .toList(growable: false),
+      );
+    }
+    return rule;
+  }
+}

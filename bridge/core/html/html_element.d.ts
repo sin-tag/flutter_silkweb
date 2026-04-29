@@ -1,0 +1,24 @@
+/*
+ * Copyright (C) 2024-present The OpenWebF Company. All rights reserved.
+ * Licensed under GNU GPL with Enterprise exception.
+ */
+import {Element} from "../dom/element";
+import {GlobalEventHandlers} from "../dom/global_event_handlers";
+
+export interface HTMLElement extends Element, GlobalEventHandlers {
+  // CSSOM View Module
+  // https://drafts.csswg.org/cssom-view/#extensions-to-the-htmlelement-interface
+  readonly offsetTop: SupportAsync<DartImpl<DependentsOnLayout<double>>>;
+  readonly offsetLeft: SupportAsync<DartImpl<DependentsOnLayout<double>>>;
+  readonly offsetWidth: SupportAsync<DartImpl<DependentsOnLayout<double>>>;
+  readonly offsetHeight: SupportAsync<DartImpl<DependentsOnLayout<double>>>;
+
+  tabIndex: DartImpl<number>;
+
+  focus(): DartImpl<void>;
+  blur(): DartImpl<void>;
+
+  click(): DartImpl<DependentsOnLayout<void>>;
+
+  new(): void;
+}

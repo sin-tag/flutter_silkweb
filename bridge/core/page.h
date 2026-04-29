@@ -1,0 +1,184 @@
+/*
+ * Copyright (C) 2024-present The OpenWebF Company. All rights reserved.
+ * Licensed under GNU GPL with Enterprise exception.
+ */
+/*
+ * Copyright (C) 2019-2022 The Kraken authors. All rights reserved.
+ * Copyright (C) 2022-present The WebF authors. All rights reserved.
+ */
+
+#ifndef WEBF_JS_QJS_BRIDGE_H_
+#define WEBF_JS_QJS_BRIDGE_H_
+
+#include <quickjs/quickjs.h>
+#include <atomic>
+#include <deque>
+#include <thread>
+#include <vector>
+
+#include "core/executing_context.h"
+#include "foundation/native_string.h"
+
+namespace webf {
+
+class WebFPage;
+class WidgetElementShape;
+class DartContext;
+class HTMLScriptElement;
+
+using JSBridgeDisposeCallback = void (*)(WebFPage* bridge);
+using ConsoleMessageHandler = std::function<void(void* ctx, const std::string& message, int logLevel)>;
+
+/// WebFPage is class which manage all js objects create by <WebF> flutter widget.
+/// Every <WebF> flutter widgets have a corresponding WebFPage, and all objects created by JavaScript are stored here,
+/// and there is no data sharing between objects between different WebFPages.
+/// It's safe to allocate many WebFPages at the same times on one thread, but not safe for multi-threads, only one
+/// thread can enter to WebFPage at the same time.
+class WebFPage final {
+ public:
+  static ConsoleMessageHandler consoleMessageHandler;
+  WebFPage() = delete;
+  WebFPage(DartIsolateContext* dart_isolate_context,
+           bool is_dedicated,
+           size_t sync_buffer_size,
+           int8_t use_legacy_ui_command,
+           double context_id,
+           NativeWidgetElementShape* naive_widget_element_shape,
+           int32_t shape_len,
+           const JSExceptionHandler& handler);
+  ~WebFPage();
+
+  // Bytecodes which registered by webf plugins.
+  static std::unordered_map<std::string, NativeByteCode> pluginByteCode;
+  static void EvaluateScriptsInternal(void* page_,
+                                      const char* code,
+                                      uint64_t code_len,
+                                      uint8_t** parsed_bytecodes,
+                                      uint64_t* bytecode_len,
+                                      const char* bundleFilename,
+                                      int32_t startLine,
+                                      void* script_element_,
+                                      Dart_Handle dart_handle,
+                                      EvaluateScriptsCallback result_callback);
+
+  static void EvaluateModuleInternal(void* page_,
+                                     const char* code,
+                                     uint64_t code_len,
+                                     uint8_t** parsed_bytecodes,
+                                     uint64_t* bytecode_len,
+                                     const char* bundleFilename,
+                                     int32_t startLine,
+                                     void* script_element_,
+                                     Dart_Handle dart_handle,
+                                     EvaluateScriptsCallback result_callback);
+
+  static void EvaluateQuickjsByteCodeInternal(void* page_,
+                                              uint8_t* bytes,
+                                              int32_t byteLen,
+                                              const char* url,
+                                              void* script_element_,
+                                              Dart_PersistentHandle persistent_handle,
+                                              EvaluateQuickjsByteCodeCallback result_callback);
+  static void ParseHTMLInternal(void* page_,
+                                char* code,
+                                int32_t length,
+                                const char* url,
+                                Dart_PersistentHandle dart_handle,
+                                ParseHTMLCallback result_callback);
+
+  static void InvokeModuleEventInternal(void* page_,
+                                        void* module_name,
+                                        const char* eventType,
+                                        void* event,
+                                        void* extra,
+                                        Dart_Handle dart_handle,
+                                        InvokeModuleEventCallback result_callback);
+
+  static void DumpQuickJsByteCodeInternal(void* page_,
+                                          const char* code,
+                                          int32_t code_len,
+                                          uint8_t** parsed_bytecodes,
+                                          uint64_t* bytecode_len,
+                                          const char* url,
+                                          bool is_module,
+                                          Dart_PersistentHandle persistent_handle,
+                                          DumpQuickjsByteCodeCallback result_callback);
+  // Entry points used by the Dart side to notify C++ that specific
+  // environment-dependent media values have changed. Each callback targets
+  // a single value and is free to ignore the value for now and query the
+  // latest environment from Dart via MediaValues when evaluating.
+  static void OnViewportSizeChangedInternal(void* page_, double inner_width, double inner_height);
+  static void OnDevicePixelRatioChangedInternal(void* page_, double device_pixel_ratio);
+  static void OnColorSchemeChangedInternal(void* page_, const std::string& scheme);
+
+  // evaluate JavaScript source codes in standard mode.
+  bool evaluateScript(const char* script,
+                      uint64_t script_len,
+                      uint8_t** parsed_bytecodes,
+                      uint64_t* bytecode_len,
+                      const char* url,
+                      int startLine,
+                      HTMLScriptElement* script_element = nullptr);
+  // evaluate JavaScript source codes as ES module.
+  bool evaluateModule(const char* script,
+                      uint64_t script_len,
+                      uint8_t** parsed_bytecodes,
+                      uint64_t* bytecode_len,
+                      const char* url,
+                      int startLine,
+                      HTMLScriptElement* script_element = nullptr);
+  bool parseHTML(const char* code, size_t length);
+  void evaluateScript(const char* script, size_t length, const char* url, int startLine, HTMLScriptElement* script_element = nullptr);
+  uint8_t* dumpByteCode(const char* script, size_t length, const char* url, bool is_module, uint64_t* byteLength);
+  bool evaluateByteCode(uint8_t* bytes, size_t byteLength, HTMLScriptElement* script_element = nullptr);
+
+  std::thread::id currentThread() const;
+
+  [[nodiscard]] ExecutingContext* executingContext() const { return context_; }
+  [[nodiscard]] DartIsolateContext* dartIsolateContext() const { return dart_isolate_context_; }
+
+  NativeValue* invokeModuleEvent(SharedNativeString* moduleName,
+                                 const char* eventType,
+                                 void* event,
+                                 NativeValue* extra);
+  void reportError(const char* errmsg);
+
+  FORCE_INLINE bool isDedicated() { return context_->isDedicated(); };
+  FORCE_INLINE double contextId() { return context_->contextId(); }
+
+  // Returns false when a previous UpdateStyleForThisDocument task is still
+  // running (or pending) for this page.
+  bool TryBeginUpdateStyleForThisDocument() {
+    return !update_style_for_this_document_in_progress_.exchange(true, std::memory_order_acq_rel);
+  }
+
+  void EndUpdateStyleForThisDocument() {
+    update_style_for_this_document_in_progress_.store(false, std::memory_order_release);
+  }
+
+  bool IsUpdateStyleForThisDocumentInProgress() const {
+    return update_style_for_this_document_in_progress_.load(std::memory_order_acquire);
+  }
+
+  // Don't allow more than a certain number of frames in a page.
+  static int MaxNumberOfFrames();
+
+#if IS_TEST
+  // the owner pointer which take JSBridge as property.
+  void* owner;
+  JSBridgeDisposeCallback disposeCallback{nullptr};
+#endif
+ private:
+  const std::thread::id ownerThreadId;
+  std::atomic<bool> update_style_for_this_document_in_progress_{false};
+  // FIXME: we must to use raw pointer instead of unique_ptr because we needs to access context_ when dispose page.
+  // TODO: Raw pointer is dangerous and just works but it's fragile. We needs refactor this for more stable and
+  // maintainable.
+  DartIsolateContext* dart_isolate_context_;
+  ExecutingContext* context_;
+  JSExceptionHandler handler_;
+};
+
+}  // namespace webf
+
+#endif  // WEBF_JS_QJS_BRIDGE_H_

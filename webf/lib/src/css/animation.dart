@@ -1,0 +1,1237 @@
+/*
+ * Copyright (C) 2024-present The OpenWebF Company. All rights reserved.
+ * Licensed under GNU GPL with Enterprise exception.
+ */
+/*
+ * Copyright (C) 2019-2022 The Kraken authors. All rights reserved.
+ * Copyright (C) 2022-2024 The WebF authors. All rights reserved.
+ */
+
+import 'dart:core';
+import 'dart:math';
+
+import 'package:flutter/animation.dart';
+import 'package:flutter/scheduler.dart';
+import 'package:flutter_silkweb/css.dart';
+import 'package:flutter_silkweb/dom.dart';
+import 'package:flutter_silkweb/foundation.dart';
+
+// https://drafts.csswg.org/web-animations/#enumdef-animationplaystate
+enum AnimationPlayState { idle, running, paused, finished }
+
+// https://drafts.csswg.org/web-animations/#the-animationreplacestate-enumeration
+enum AnimationReplaceState { active, removed, persisted }
+
+enum AnimationEffectPhase { none, before, active, after }
+
+// https://drafts.csswg.org/web-animations/#enumdef-fillmode
+enum FillMode { none, forwards, backwards, both, auto }
+
+// https://drafts.csswg.org/web-animations/#enumdef-playbackdirection
+enum PlaybackDirection { normal, reverse, alternate, alternateReverse }
+
+Curve? _parseEasing(String? function) {
+  if (function == null) return null;
+
+  switch (function) {
+    case LINEAR:
+      return Curves.linear;
+    case EASE:
+      return Curves.ease;
+    case EASE_IN:
+      return Curves.easeIn;
+    case EASE_OUT:
+      return Curves.easeOut;
+    case EASE_IN_OUT:
+      return Curves.easeInOut;
+    case STEP_START:
+      return Threshold(0);
+    case STEP_END:
+      return Threshold(1);
+  }
+  List<CSSFunctionalNotation> methods = CSSFunction.parseFunction(function);
+  if (methods.isNotEmpty) {
+    CSSFunctionalNotation method = methods.first;
+    if (method.name == 'steps') {
+      if (method.args.isNotEmpty) {
+        var step = int.tryParse(method.args[0]);
+        var isStart = false;
+        if (method.args.length == 2) {
+          isStart = method.args[1] == 'start';
+        }
+        return CSSStepCurve(step, isStart);
+      }
+    } else if (method.name == 'cubic-bezier') {
+      if (method.args.length == 4) {
+        var first = double.tryParse(method.args[0])!;
+        var sec = double.tryParse(method.args[1])!;
+        var third = double.tryParse(method.args[2])!;
+        var forth = double.tryParse(method.args[3])!;
+        return Cubic(first, sec, third, forth);
+      }
+    }
+  }
+  return null;
+}
+
+class AnimationTimeline {
+  List<Animation> _animations = [];
+  double? _currentTime;
+  late Ticker _ticker;
+  final Document ownerDocument;
+
+  AnimationTimeline(this.ownerDocument) {
+    _ticker = Ticker(_onTick);
+  }
+
+  double? get currentTime {
+    return _currentTime;
+  }
+
+  List<Animation> getAnimations() {
+    return _getActiveAnimations();
+  }
+
+  void _onTick(Duration timeStamp) {
+    _currentTime = timeStamp.inMicroseconds / 1000;
+    _animations = _getActiveAnimations();
+    // Ensure deterministic ordering for CSS transitions whose properties depend on
+    // other properties in the same element (e.g., transform percentages depending
+    // on width/height). Within the same target element, apply size-affecting
+    // transitions before positional, and transforms last.
+    if (_animations.isNotEmpty) {
+      int priorityForProperty(String p) {
+        const sizeProps = <String>{
+          WIDTH,
+          HEIGHT,
+          MIN_WIDTH,
+          MAX_WIDTH,
+          MIN_HEIGHT,
+          MAX_HEIGHT,
+          PADDING_LEFT,
+          PADDING_RIGHT,
+          PADDING_TOP,
+          PADDING_BOTTOM,
+          BORDER_LEFT_WIDTH,
+          BORDER_RIGHT_WIDTH,
+          BORDER_TOP_WIDTH,
+          BORDER_BOTTOM_WIDTH
+        };
+        const transformProps = <String>{TRANSFORM, TRANSFORM_ORIGIN};
+        if (sizeProps.contains(p)) return 0;
+        if (transformProps.contains(p)) return 2;
+        return 1;
+      }
+
+      int animationPriority(Animation a) {
+        final effect = a.effect;
+        if (effect is KeyframeEffect && effect.isTransition && effect.interpolations.isNotEmpty) {
+          final prop = effect.interpolations.first.property;
+          return priorityForProperty(prop);
+        }
+        return 1;
+      }
+
+      _animations.sort((a, b) {
+        // Only enforce ordering for animations on the same element.
+        final ea = a.effect;
+        final eb = b.effect;
+        if (ea is KeyframeEffect && eb is KeyframeEffect) {
+          if (ea.renderStyle.target == eb.renderStyle.target) {
+            final pa = animationPriority(a);
+            final pb = animationPriority(b);
+            if (pa != pb) return pa - pb;
+          }
+        }
+        return 0;
+      });
+    }
+    if (_animations.isEmpty) {
+      if (_ticker.isActive) {
+        _ticker.stop();
+      }
+    } else {
+      for (Animation animation in [..._animations]) {
+        animation._tick(_currentTime);
+      }
+    }
+  }
+
+  List<Animation> _getActiveAnimations() {
+    List<Animation> activeAnimations = [];
+
+    for (Animation animation in [..._animations]) {
+      AnimationPlayState playState = animation.playState;
+      if (playState != AnimationPlayState.finished && playState != AnimationPlayState.idle) {
+        activeAnimations.add(animation);
+      }
+    }
+    return activeAnimations;
+  }
+
+  void _addAnimation(Animation animation) {
+    if (!_animations.contains(animation)) {
+      _animations.add(animation);
+    }
+
+    if (!_ticker.isActive && ownerDocument.controller.isFlutterAttached) {
+      _ticker.start();
+    }
+  }
+
+  void _removeAnimation(Animation animation) {
+    _animations.remove(animation);
+
+    if (_animations.isEmpty) {
+      _ticker.stop();
+    }
+  }
+
+  void pause() {
+    // Stop the ticker if it's active (temporary pause)
+    if (_ticker.isActive) {
+      _ticker.stop();
+    }
+  }
+
+  void resume() {
+    // Resume the ticker if there are active animations
+    if (_animations.isNotEmpty && !_ticker.isActive) {
+      _ticker.start();
+    }
+  }
+
+  void dispose() {
+    // Stop the ticker if it's active
+    if (_ticker.isActive) {
+      _ticker.stop();
+    }
+
+    // Dispose all animations
+    for (Animation animation in [..._animations]) {
+      animation.dispose();
+    }
+    _animations.clear();
+
+    // Dispose the ticker to release resources
+    _ticker.dispose();
+  }
+}
+
+class Animation {
+  double? _startTime;
+  double _currentTime = 0;
+  double _playbackRate = 1;
+
+  bool _isPaused = false;
+
+  // Whether the keyframeEffect is in effect or not after the timing update.
+  bool _inEffect = false;
+  bool _inTimeline = true;
+  bool _isIdle = true;
+  bool _isCurrentTimePending = false;
+
+  bool _finishedFlag = true;
+
+  // The target effect, as an object based on the AnimationEffect interface, to assign to the animation.
+  // Although in the future other effects such as SequenceEffects or GroupEffects might be possible,
+  // the only kind of effect currently available is KeyframeEffect.
+  // This can be null (which is the default) to indicate that there should be no effect applied.
+  KeyframeEffect? _effect;
+  AnimationTimeline? timeline;
+  AnimationReplaceState? _replaceState;
+
+  Function? onfinish;
+  Function? oncancel;
+  Function? onremove;
+
+  // For transitionstart event
+  Function? onstart;
+
+  /// Fired once per completed iteration (after the first), matching the
+  /// browser's `animationiteration` DOM event. Args: integer iteration index.
+  void Function(int iteration)? oniteration;
+  int _lastIterationIndex = 0;
+
+  Animation(KeyframeEffect effect, this.timeline) : _effect = effect;
+
+  void _setInEffect(bool flag) {
+    if (_inEffect == false && flag == true && onstart != null) {
+      onstart!();
+    }
+    _inEffect = flag;
+  }
+
+  double? get currentTime {
+    if (_isIdle || _isCurrentTimePending) return null;
+    return _currentTime;
+  }
+
+  double get progress {
+    return _effect?._progress ?? 0.0;
+  }
+
+  set currentTime(double? newTime) {
+    if (newTime == null) return;
+
+    if (!_isPaused && _startTime != null) {
+      _startTime = timeline!.currentTime! - newTime / _playbackRate;
+    }
+
+    _isCurrentTimePending = false;
+    if (_currentTime == newTime) return;
+
+    if (_isIdle) {
+      _isIdle = false;
+      _isPaused = true;
+    }
+    _tickCurrentTime(newTime, true);
+  }
+
+  _tickCurrentTime(double newTime, [bool ignoreLimit = false]) {
+    if (newTime != _currentTime) {
+      _currentTime = newTime;
+      if (_isFinished && !ignoreLimit) {
+        _currentTime = _playbackRate > 0 ? _totalDuration : 0;
+      }
+      _ensureAlive();
+      _effect!._runIteration(_currentTime);
+      // Detect iteration boundary crossing — needed by the standard
+      // `animationiteration` DOM event (Tailwind/CSS keyframes like
+      // `bounce`, `ping` rely on it for step counting).
+      final int? idx = _effect!._currentIterationIndex;
+      if (idx != null && idx > _lastIterationIndex) {
+        _lastIterationIndex = idx;
+        oniteration?.call(idx);
+      }
+    }
+  }
+
+  AnimationEffect? get effect {
+    return _effect;
+  }
+
+  set effect(AnimationEffect? effect) {
+    _effect = effect as KeyframeEffect?;
+  }
+
+  double get playbackRate {
+    return _playbackRate;
+  }
+
+  set playbackRate(double value) {
+    if (value == _playbackRate) return;
+
+    _effect!._playbackRate = value;
+
+    _playbackRate = value;
+
+    double? oldCurrentTime = currentTime;
+    _startTime = null;
+    if (playState != AnimationPlayState.paused && playState != AnimationPlayState.idle) {
+      _finishedFlag = false;
+      _isIdle = false;
+      _ensureAlive();
+    }
+    if (oldCurrentTime != null) {
+      currentTime = oldCurrentTime;
+    }
+  }
+
+  double? get startTime {
+    return _startTime;
+  }
+
+  set startTime(double? value) {
+    if (value == null) return;
+
+    if (_isPaused || _isIdle) return;
+    _startTime = value;
+    _tickCurrentTime((timeline!.currentTime! - _startTime!) * playbackRate);
+  }
+
+  AnimationPlayState get playState {
+    if (_isIdle) {
+      // The current time of the animation is unresolved and there are no pending tasks.
+      return AnimationPlayState.idle;
+    }
+    if (_isPaused) {
+      // The animation was suspended and the Animation.currentTime property is not updating.
+      return AnimationPlayState.paused;
+    }
+    if (_isFinished) {
+      // The animation has reached one of its boundaries and the Animation.currentTime property is not updating.
+      return AnimationPlayState.finished;
+    }
+    return AnimationPlayState.running;
+  }
+
+  AnimationReplaceState? get replaceState {
+    return _replaceState;
+  }
+
+  // Indicates whether the animation is currently waiting for an asynchronous operation such as initiating playback or pausing a running animation.
+  bool get pending {
+    return (_startTime == null && !_isPaused && playbackRate != 0) || _isCurrentTimePending;
+  }
+
+  bool get _isFinished {
+    return !_isIdle && (_playbackRate > 0 && _currentTime >= _totalDuration || _playbackRate < 0 && _currentTime <= 0);
+  }
+
+  double get _totalDuration {
+    return _effect!._getTotalDuration();
+  }
+
+  // To set the the playback rate for an in-flight animation such that it smoothly updates,
+  // use the asynchronous updatePlaybackRate() method.
+  void updatePlaybackRate() {
+    // @TODO
+  }
+
+  void cancel() {
+    if (!_inEffect) return;
+    _inEffect = false;
+    _isIdle = true;
+    _isPaused = false;
+    _finishedFlag = true;
+    _currentTime = 0;
+    _startTime = null;
+    _effect!._calculateTiming(null);
+    timeline?._removeAnimation(this);
+
+    if (oncancel != null) {
+      var event = AnimationPlaybackEvent(EVENT_CANCEL);
+      event.timelineTime = timeline!.currentTime;
+      oncancel!(event);
+    }
+  }
+
+  void finish() {
+    if (_isIdle) return;
+    currentTime = _playbackRate > 0 ? _totalDuration : 0;
+    _startTime = _totalDuration - currentTime!;
+    _isCurrentTimePending = false;
+  }
+
+  void play() {
+    if (_totalDuration <= 0) {
+      return;
+    }
+    _isPaused = false;
+    if (_isFinished || _isIdle) {
+      _rewind();
+      _startTime = null;
+    }
+    _finishedFlag = false;
+    _isIdle = false;
+    _ensureAlive();
+  }
+
+  void pause() {
+    if (!_isFinished && !_isPaused && !_isIdle) {
+      _isCurrentTimePending = true;
+    } else if (_isIdle) {
+      _rewind();
+      _isIdle = false;
+    }
+    _startTime = null;
+    _isPaused = true;
+  }
+
+  void reverse() {
+    playbackRate *= -1;
+    play();
+  }
+
+  void persist() {
+    _replaceState = AnimationReplaceState.persisted;
+  }
+
+  void _ensureAlive() {
+    // If an animation is playing backwards and is not fill backwards/both
+    // then it should go out of effect when it reaches the start of its
+    // active interval (currentTime == 0).
+    if (playbackRate < 0 && currentTime == 0) {
+      _effect!._calculateTiming(-1);
+    } else {
+      _effect!._calculateTiming(currentTime);
+    }
+    _setInEffect(_effect!._activeTime != null);
+
+    if (!_inTimeline && (_inEffect || !_finishedFlag)) {
+      _inTimeline = true;
+    }
+    timeline!._addAnimation(this);
+  }
+
+  void dispose() {
+    onstart = null;
+    onfinish = null;
+    onremove = null;
+    oncancel = null;
+    cancel();
+    timeline?._removeAnimation(this);
+  }
+
+  void _rewind() {
+    if (_playbackRate >= 0) {
+      _currentTime = 0;
+    } else {
+      _currentTime = _totalDuration;
+    }
+  }
+
+  void _tick(double? timelineTime) {
+    if (!_isIdle && !_isPaused) {
+      if (_startTime == null) {
+        startTime = timelineTime! - _currentTime / playbackRate;
+      } else if (!_isFinished) {
+        _tickCurrentTime((timelineTime! - _startTime!) * playbackRate);
+      }
+    }
+    _isCurrentTimePending = false;
+    _fireEvents(timelineTime);
+  }
+
+  void _fireEvents(double? timelineTime) {
+    if (_isFinished) {
+      if (!_finishedFlag) {
+        AnimationPlaybackEvent event = AnimationPlaybackEvent(EVENT_FINISH);
+        event.currentTime = currentTime;
+        event.timelineTime = timelineTime;
+        if (onfinish != null) onfinish!(event);
+        timeline?._removeAnimation(this);
+        _finishedFlag = true;
+      }
+    } else {
+      _finishedFlag = false;
+    }
+  }
+}
+
+class AnimationPlaybackEvent extends Event {
+  AnimationPlaybackEvent(super.type);
+
+  num? currentTime;
+  num? timelineTime;
+}
+
+class Keyframe {
+  String property;
+  String value;
+  double offset;
+  String? easing;
+  Keyframe(this.property, this.value, this.offset, [this.easing]);
+}
+
+class KeyframeInterpolation {
+  double startOffset;
+  double endOffset;
+  Curve? easing;
+  String property;
+  dynamic begin;
+  dynamic end;
+  Function lerp;
+
+  KeyframeInterpolation(
+      {required this.property,
+      required this.startOffset,
+      required this.endOffset,
+      required this.easing,
+      required this.begin,
+      required this.end,
+      required this.lerp}) {
+    easing ??= Curves.linear;
+  }
+
+  @override
+  String toString() => 'KeyframeInterpolation('
+      'startOffset: $startOffset, '
+      'endOffset: $endOffset, '
+      'easing: $easing, '
+      'property: $property, '
+      'begin: $begin, '
+      'end: $end'
+      ')';
+}
+
+class KeyframeEffect extends AnimationEffect {
+  RenderStyle renderStyle;
+  late List<KeyframeInterpolation> _interpolations;
+  List<KeyframeInterpolation> get interpolations => _interpolations;
+  double? _progress;
+  double? _activeTime;
+  late Map<String, List<Keyframe>> _propertySpecificKeyframeGroups;
+  final bool isTransition;
+
+  // Speed control.
+  // The rate of play of an animation can be controlled by setting its playback rate.
+  // For example, setting a playback rate of 2 will cause the animation’s current time to increase at twice the rate of its timeline.
+  // Similarly, a playback rate of -1 will cause the animation’s current time to decrease at the same rate as the time values from its timeline increase.
+  double _playbackRate = 1;
+
+  KeyframeEffect(this.renderStyle, List<Keyframe> keyframes, EffectTiming? options, {this.isTransition = false}) {
+    timing = options ?? EffectTiming();
+
+    _propertySpecificKeyframeGroups = _makePropertySpecificKeyframeGroups(keyframes);
+    _interpolations = _makeInterpolations(_propertySpecificKeyframeGroups, renderStyle);
+
+
+  }
+
+  Iterable<String> get properties {
+    return _propertySpecificKeyframeGroups.keys;
+  }
+
+  // Default parser used when a property has no specialized transition handler.
+  // Keep signature compatible with transition parsers: (value, renderStyle, property).
+  static _defaultParse(value, RenderStyle? renderStyle, String? property) {
+    return value;
+  }
+
+  // Default lerp: step at 50% and assign via style so shorthand properties work.
+  // Signature matches update handlers: (begin, end, t, property, renderStyle).
+  static _defaultLerp(start, end, double progress, String property, CSSRenderStyle renderStyle) {
+    final selected = progress < 0.5 ? start : end;
+    // Fallback path uses CSSStyleDeclaration to expand shorthands when needed.
+    // This keeps layered values (e.g., background-position lists) in sync.
+    renderStyle.target.style.setProperty(property, selected?.toString() ?? '');
+    return selected;
+  }
+
+  static List<KeyframeInterpolation> _makeInterpolations(
+      Map<String, List<Keyframe>> propertySpecificKeyframeGroups, RenderStyle? renderStyle) {
+    List<KeyframeInterpolation> interpolations = [];
+
+    propertySpecificKeyframeGroups.forEach((String property, List<Keyframe> keyframes) {
+      // Handle single-end keyframe (e.g., only `to { ... }`) by synthesizing a
+      // begin frame from the current computed style at offset 0 per spec. When
+      // the keyframe offset is strictly between 0 and 1 (e.g., 50%), also
+      // synthesize a symmetric segment back to the underlying value so that
+      // each iteration is continuous (no visible jump) as required by the
+      // Web Animations processing model.
+      if (keyframes.length == 1) {
+        // Use the current computed value as the synthesized start; if the
+        // author has not set this property explicitly, fall back to the
+        // CSS initial value for the property instead of treating the empty
+        // string as a real value.
+        String left = renderStyle?.target.style.getPropertyValue(property) ?? '';
+        if (left.isEmpty) {
+          left = cssInitialValues[property] ?? '';
+        }
+        String? right = keyframes[0].value;
+        if (left == INITIAL) left = cssInitialValues[property] ?? left;
+        if (right == INITIAL) right = cssInitialValues[property];
+
+        List? handlers = cssTransitionHandlers[property];
+        handlers ??= [_defaultParse, _defaultLerp];
+        Function parseProperty = handlers[0];
+
+        double offset = keyframes[0].offset;
+        // Clamp offset to [0,1] to avoid degenerate intervals.
+        if (offset < 0.0) offset = 0.0;
+        if (offset > 1.0) offset = 1.0;
+
+        final parsedLeft = parseProperty(left, renderStyle, property);
+        final parsedRight = parseProperty(right, renderStyle, property);
+
+        // For a mid-iteration keyframe (0 < offset < 1), synthesize two
+        // segments: underlying -> keyframe, then keyframe -> underlying.
+        if (offset > 0.0 && offset < 1.0) {
+          // 0 -> offset: left -> right
+          interpolations.add(KeyframeInterpolation(
+              property: property,
+              startOffset: 0.0,
+              endOffset: offset,
+              easing: _parseEasing(keyframes[0].easing),
+              begin: parsedLeft,
+              end: parsedRight,
+              lerp: handlers[1]));
+
+          // offset -> 1: right -> left
+          interpolations.add(KeyframeInterpolation(
+              property: property,
+              startOffset: offset,
+              endOffset: 1.0,
+              easing: _parseEasing(keyframes[0].easing),
+              begin: parsedRight,
+              end: parsedLeft,
+              lerp: handlers[1]));
+        } else {
+          // Fallback: when the single keyframe is at 0% or 100%, keep the
+          // original 0 -> 1 interpolation behavior.
+          double startOffset = 0.0;
+          double endOffset = 1.0;
+
+          interpolations.add(KeyframeInterpolation(
+              property: property,
+              startOffset: startOffset,
+              endOffset: endOffset,
+              easing: _parseEasing(keyframes[0].easing),
+              begin: parsedLeft,
+              end: parsedRight,
+              lerp: handlers[1]));
+        }
+        return; // move to next property group
+      }
+
+      for (int i = 0; i < keyframes.length - 1; i++) {
+        int startIndex = i;
+        int endIndex = i + 1;
+        double startOffset = keyframes[startIndex].offset;
+        double endOffset = keyframes[endIndex].offset;
+
+        if (i == 0 && endOffset == 0) {
+          endIndex = startIndex;
+        }
+
+        if (i == keyframes.length - 2 && startOffset == 1) {
+          startIndex = endIndex;
+        }
+
+        String? left = keyframes[startIndex].value;
+        String? right = keyframes[endIndex].value;
+        if (left == INITIAL) left = cssInitialValues[property];
+        if (right == INITIAL) right = cssInitialValues[property];
+
+        if (left == right) continue;
+
+        List? handlers = cssTransitionHandlers[property];
+        handlers ??= [_defaultParse, _defaultLerp];
+        Function parseProperty = handlers[0];
+
+        KeyframeInterpolation interpolation = KeyframeInterpolation(
+            property: property,
+            startOffset: startOffset,
+            endOffset: endOffset,
+            easing: _parseEasing(keyframes[startIndex].easing),
+            begin: parseProperty(left, renderStyle, property),
+            end: parseProperty(right, renderStyle, property),
+            lerp: handlers[1]);
+
+        interpolations.add(interpolation);
+      }
+    });
+
+    // Sort by start offset, and for equal offsets, apply a stable dependency
+    // order so transform values see width/height updates of the same tick.
+    int priorityForProperty(String p) {
+      // Lower number = applied earlier within the same offset bucket.
+      // Ensure size-affecting properties run before transforms.
+      const sizeProps = <String>{
+        WIDTH,
+        HEIGHT,
+        MIN_WIDTH,
+        MAX_WIDTH,
+        MIN_HEIGHT,
+        MAX_HEIGHT,
+        PADDING_LEFT,
+        PADDING_RIGHT,
+        PADDING_TOP,
+        PADDING_BOTTOM,
+        BORDER_LEFT_WIDTH,
+        BORDER_RIGHT_WIDTH,
+        BORDER_TOP_WIDTH,
+        BORDER_BOTTOM_WIDTH
+      };
+      const transformProps = <String>{TRANSFORM, TRANSFORM_ORIGIN};
+      if (sizeProps.contains(p)) return 0;
+      if (transformProps.contains(p)) return 2;
+      return 1;
+    }
+
+    interpolations.sort((KeyframeInterpolation a, KeyframeInterpolation b) {
+      if (a.startOffset != b.startOffset) {
+        return a.startOffset < b.startOffset ? -1 : 1;
+      }
+      final pa = priorityForProperty(a.property);
+      final pb = priorityForProperty(b.property);
+      if (pa != pb) return pa < pb ? -1 : 1;
+      return 0;
+    });
+
+    return interpolations;
+  }
+
+  // [ { color: 'blue', left: '0px' },
+  //   { color: 'green', left: '-20px' },
+  //   { color: 'red', left: '100px' },
+  //   { color: 'yellow', left: '50px'} ]
+  // =>
+  // { color: [ { value: 'blue' }, { value: 'green' }, { value: 'red' }, { value: 'yellow' } ],
+  //   left: [ { value: '0px' }, { value: '-20px' }, { value: '100px' }, { value: '50px' } ] }
+  static Map<String, List<Keyframe>> _makePropertySpecificKeyframeGroups(List<Keyframe> keyframes) {
+    Map<String, List<Keyframe>> propertySpecificKeyframeGroups = {};
+
+    for (var i = 0; i < keyframes.length; i++) {
+      Keyframe keyframe = keyframes[i];
+      String property = keyframe.property;
+
+      if (propertySpecificKeyframeGroups[property] == null) {
+        propertySpecificKeyframeGroups[property] = [keyframe];
+      } else {
+        propertySpecificKeyframeGroups[property]!.add(keyframe);
+      }
+    }
+
+    // Ensure keyframes for each property are processed in offset order so
+    // segments are built as ascending intervals (e.g., 0 -> 0.5 -> 1). This
+    // fixes cases where combined selectors like "0%, 100%" appear before a
+    // middle stop (50%), which would otherwise produce 0->1 then 1->0.5 pairs
+    // and get filtered out at runtime.
+    propertySpecificKeyframeGroups.forEach((String property, List<Keyframe> list) {
+      list.sort((a, b) => a.offset.compareTo(b.offset));
+    });
+
+    return propertySpecificKeyframeGroups;
+  }
+
+  static final double _timeEpsilon = 0.00001;
+
+  void _runIteration(double localTime) {
+    if (_progress == null) {
+      // If fill is backwards that will be null when animation finished
+      _propertySpecificKeyframeGroups.forEach((String propertyName, value) {
+        String currentValue = renderStyle.target.style.getPropertyValue(propertyName);
+        renderStyle.target.setRenderStyle(propertyName, currentValue);
+      });
+      SchedulerBinding.instance.scheduleFrame();
+    } else {
+      for (int i = 0; i < _interpolations.length; i++) {
+        KeyframeInterpolation interpolation = _interpolations[i];
+        double startOffset = interpolation.startOffset;
+        double endOffset = interpolation.endOffset;
+        //fix filter invalid interval
+        if (_progress! < startOffset || _progress! > endOffset) {
+          continue;
+        }
+        Curve? easingCurve = interpolation.easing;
+        String property = interpolation.property;
+        double offsetFraction = _progress! - startOffset;
+        double localDuration = endOffset - startOffset;
+        double scaledLocalTime = localDuration == 0 ? 0 : easingCurve!.transform(offsetFraction / localDuration);
+
+        if (1 - scaledLocalTime < _timeEpsilon) {
+          scaledLocalTime = 1;
+        }
+
+        // (removed) segment-enter diagnostic logging
+
+        // Apply interpolation regardless of render box availability so
+        // computed styles reflect animated values prior to first layout.
+        if (interpolation.begin != null && interpolation.end != null) {
+          final current = interpolation.lerp(
+              interpolation.begin, interpolation.end, scaledLocalTime, property, renderStyle as CSSRenderStyle);
+
+          if (DebugFlags.shouldLogTransitionForProp(property)) {
+            String valueText = '';
+            try {
+              final handlers = cssTransitionHandlers[property];
+              if (handlers != null && handlers.length >= 3) {
+                final stringify = handlers[2];
+                valueText = stringify(current).toString();
+              } else {
+                // Fallback: try style map or toString of current
+                final maybe = renderStyle.target.style.getPropertyValue(property);
+                valueText = (maybe.isNotEmpty ? maybe : (current?.toString() ?? ''));
+              }
+            } catch (_) {
+              try {
+                final maybe = renderStyle.target.style.getPropertyValue(property);
+                valueText = (maybe.isNotEmpty ? maybe : (current?.toString() ?? ''));
+              } catch (_) {}
+            }
+            cssLogger.info('[transition][tick] ${renderStyle.target.tagName}.$property t=${scaledLocalTime.toStringAsFixed(3)} value=${valueText.isEmpty ? '""' : valueText}');
+          }
+        }
+      }
+
+      // Flush any pending inline style changes produced by keyframe interpolation
+      // so that renderStyle and layout see updated values each tick (e.g., opacity).
+      renderStyle.target.style.flushPendingProperties();
+    }
+  }
+
+  double _getTotalDuration() {
+    double activeDuration = _calculateActiveDuration();
+    return timing!.delay! + activeDuration + timing!.endDelay!;
+  }
+
+  double _calculateActiveDuration() {
+    // 3.8.2. Calculating the active duration
+    // https://drafts.csswg.org/web-animations-1/#calculating-the-active-duration
+
+    return (_repeatedDuration(timing!) / _playbackRate).abs();
+  }
+
+  // https://drafts.csswg.org/web-animations/#calculating-the-active-duration
+  double _repeatedDuration(EffectTiming timing) {
+    // The active duration is calculated as follows:
+    // active duration = iteration duration × iteration count
+    // If either the iteration duration or iteration count are zero, the active duration is zero.
+    if (timing.duration == 0 || timing.iterations == 0) {
+      return 0;
+    }
+    return timing.duration! * timing.iterations!;
+  }
+
+  // https://drafts.csswg.org/web-animations/#animation-effect-phases-and-states
+  AnimationEffectPhase _calculatePhase(double activeDuration, double? localTime) {
+    bool animationIsBackwards = _playbackRate < 0;
+
+    // (This should be the last statement, but it's more efficient to cache the local time and return right away if it's not resolved.)
+    // Furthermore, it is often convenient to refer to the case when an animation effect is in none of the above phases
+    // as being in the idle phase.
+    if (localTime == null) {
+      return AnimationEffectPhase.none;
+    }
+
+    // An animation effect is in the before phase if the animation effect’s local time is not unresolved and
+    // either of the following conditions are met:
+    //     1. the local time is less than the before-active boundary time, or
+    //     2. the animation direction is ‘backwards’ and the local time is equal to the before-active boundary time.
+    double endTime = max<double>(timing!.delay! + activeDuration + timing!.endDelay!, 0.0);
+    double beforeActiveBoundaryTime = max<double>(min<double>(timing!.delay!, endTime), 0.0);
+
+    if (localTime < beforeActiveBoundaryTime || (animationIsBackwards && localTime == beforeActiveBoundaryTime)) {
+      return AnimationEffectPhase.before;
+    }
+
+    // An animation effect is in the after phase if the animation effect’s local time is not unresolved and
+    // either of the following conditions are met:
+    //     1. the local time is greater than the active-after boundary time, or
+    //     2. the animation direction is ‘forwards’ and the local time is equal to the active-after boundary time.
+    double activeAfterBoundaryTime = max<double>(min<double>(timing!.delay! + activeDuration, endTime), 0.0);
+
+    if (localTime > activeAfterBoundaryTime || (!animationIsBackwards && localTime == activeAfterBoundaryTime)) {
+      return AnimationEffectPhase.after;
+    }
+
+    // An animation effect is in the active phase if the animation effect’s local time is not unresolved and it is not
+    // in either the before phase nor the after phase.
+    // (No need to check, we've already established that local time was resolved).
+    return AnimationEffectPhase.active;
+  }
+
+  // https://drafts.csswg.org/web-animations/#calculating-the-active-time
+  // ignore: missing_return
+  double? _calculateActiveTime(double activeDuration, double? localTime, AnimationEffectPhase phase) {
+    FillMode? fillMode = timing!.fill;
+    switch (phase) {
+      case AnimationEffectPhase.before:
+        // If the fill mode is backwards or both, return the result of evaluating
+        // max(local time - start delay, 0).
+        if (fillMode == FillMode.backwards || fillMode == FillMode.both) {
+          return max<double>(localTime! - timing!.delay!, 0.0);
+        }
+        // Otherwise, return an unresolved time value.
+        return null;
+      case AnimationEffectPhase.active:
+        // If the animation effect is in the active phase, return the result of evaluating local time - start delay.
+        return localTime! - timing!.delay!;
+      // If the animation effect is in the after phase, the result depends on the first matching
+      // condition from the following,
+      case AnimationEffectPhase.after:
+        // If the fill mode is forwards or both, return the result of evaluating
+        // max(min(local time - start delay, active duration), 0).
+        if (fillMode == FillMode.forwards || fillMode == FillMode.both) {
+          return max<double>(min<double>(localTime! - timing!.delay!, activeDuration), 0.0);
+        }
+        // Otherwise (the local time is unresolved), return an unresolved time value.
+        return null;
+      case AnimationEffectPhase.none:
+        return null;
+    }
+  }
+
+  // 3.8.3.2. Calculating the overall progress
+  // https://drafts.csswg.org/web-animations-1/#calculating-the-overall-progress
+  double? _calculateOverallProgress(AnimationEffectPhase phase, double? activeTime) {
+    // The overall progress describes the number of iterations that have completed (including partial iterations) and is defined as follows:
+
+    // 1. If the active time is unresolved, return unresolved.
+    if (activeTime == null) return null;
+
+    // 2. Calculate an initial value for overall progress based on the first matching condition from below,
+    double? overallProgress;
+    double? iterationDuration = timing!.duration;
+    if (iterationDuration == 0) {
+      // If the iteration duration is zero, if the animation effect is in the before phase, let overall progress be zero,
+      // otherwise, let it be equal to the iteration count.
+      overallProgress = phase == AnimationEffectPhase.before ? 0 : timing!.iterations;
+    } else {
+      // Otherwise, let overall progress be the result of calculating active time / iteration duration.
+      overallProgress = activeTime / iterationDuration!;
+    }
+
+    // 3. Return the result of calculating overall progress + iteration start.
+    overallProgress = overallProgress! + timing!.iterationStart!;
+    return overallProgress.abs();
+  }
+
+  // 3.8.3.3. Calculating the simple iteration progress
+  // https://drafts.csswg.org/web-animations-1/#calculating-the-simple-iteration-progress
+  double? _calculateSimpleIterationProgress(
+      double? overallProgress, AnimationEffectPhase phase, double? activeTime, double activeDuration) {
+    // The simple iteration progress is a fraction of the progress through the current iteration that
+    // ignores transformations to the time introduced by the playback direction or timing functions
+    // applied to the effect, and is calculated as follows:
+
+    // 1. If the overall progress is unresolved, return unresolved.
+    if (overallProgress == null) return null;
+
+    double? iterationStart = timing!.iterationStart;
+    double? iterations = timing!.iterations;
+    // 2. If overall progress is infinity, let the simple iteration progress be iteration start % 1.0,
+    // otherwise, let the simple iteration progress be overall progress % 1.0.
+    double simpleIterationProgress = (overallProgress == double.infinity) ? iterationStart! % 1 : overallProgress % 1;
+
+    // 3. If all of the following conditions are true,
+    //
+    // the simple iteration progress calculated above is zero, and
+    // the animation effect is in the active phase or the after phase, and
+    // the active time is equal to the active duration, and
+    // the iteration count is not equal to zero.
+    // let the simple iteration progress be 1.0.
+    if (simpleIterationProgress == 0 &&
+        (phase == AnimationEffectPhase.active || phase == AnimationEffectPhase.after) &&
+        iterations != 0 &&
+        activeTime == activeDuration) {
+      simpleIterationProgress = 1;
+    }
+    return simpleIterationProgress;
+  }
+
+  // 3.8.4. Calculating the current iteration
+  // https://drafts.csswg.org/web-animations-1/#calculating-the-current-iteration
+  double? _calculateCurrentIteration(
+      AnimationEffectPhase phase, double? activeTime, double? simpleIterationProgress, double? overallProgress) {
+    // The current iteration can be calculated using the following steps:
+
+    // 1. If the active time is unresolved, return unresolved.
+    if (activeTime == null) return null;
+
+    double? iterations = timing!.iterations;
+    // 2. If the animation effect is in the after phase and the iteration count is infinity, return infinity.
+    if (phase == AnimationEffectPhase.after && iterations == double.infinity) {
+      return double.infinity;
+    }
+
+    // 3. If the simple iteration progress is 1.0, return floor(overall progress) - 1.
+    if (simpleIterationProgress == 1) {
+      return overallProgress!.floor().toDouble() - 1;
+    }
+    // 4. Otherwise, return floor(overall progress).
+    return overallProgress!.floor().toDouble();
+  }
+
+  PlaybackDirection? _calculateCurrentDirection(double? currentIteration) {
+    PlaybackDirection? playbackDirection = timing!.direction;
+    PlaybackDirection? currentDirection = playbackDirection;
+    if (playbackDirection != PlaybackDirection.normal && playbackDirection != PlaybackDirection.reverse) {
+      var d = currentIteration;
+      if (d != null && playbackDirection == PlaybackDirection.alternateReverse) {
+        d = d + 1;
+      }
+      currentDirection = PlaybackDirection.normal;
+      if (d != null && d != double.infinity && d % 2 != 0) {
+        currentDirection = PlaybackDirection.reverse;
+      }
+    }
+    return currentDirection;
+  }
+
+  // 3.9.1. Calculating the directed progress
+  // https://drafts.csswg.org/web-animations-1/#calculating-the-directed-progress
+  double? _calculateDirectedProgress(
+      double? currentIteration, PlaybackDirection? currentDirection, double? simpleIterationProgress) {
+    // The directed progress is calculated from the simple iteration progress using the following steps:
+
+    // 1. If the simple iteration progress is unresolved, return unresolved.
+    if (simpleIterationProgress == null) return null;
+
+    // 2. Calculate the current direction (we implement this as a separate method).
+
+    // 3. If the current direction is forwards then return the simple iteration progress.
+    if (currentDirection == PlaybackDirection.normal) {
+      return simpleIterationProgress;
+    }
+
+    // Otherwise, return 1.0 - simple iteration progress.
+    return 1 - simpleIterationProgress;
+  }
+
+  // The smallest positive double value that is greater than zero.
+  static final double _epsilon = 4.94065645841247E-324;
+
+  // Permit 2-bits of quantization error. Threshold based on experimentation
+  // with accuracy of fmod.
+  static final double _calculationEpsilon = 2.0 * _epsilon;
+
+  // 3.10.1. Calculating the transformed progress
+  // https://drafts.csswg.org/web-animations-1/#calculating-the-transformed-progress
+  double? _calculateTransformedProgress(
+      AnimationEffectPhase phase, double? activeTime, double? directedProgress, PlaybackDirection? currentDirection) {
+    // The transformed progress is calculated from the directed progress using the following steps:
+    //
+    // 1. If the directed progress is unresolved, return unresolved.
+    if (directedProgress == null) return null;
+
+    // Snap boundaries to correctly render step timing functions at 0 and 1.
+    // (crbug.com/949373)
+    if (phase == AnimationEffectPhase.after) {
+      bool isCurrentDirectionForward = currentDirection == PlaybackDirection.normal;
+      if (isCurrentDirectionForward && (directedProgress - 1).abs() <= _calculationEpsilon) {
+        directedProgress = 1;
+      } else if (!isCurrentDirectionForward && (activeTime! - 0).abs() <= _calculationEpsilon) {
+        directedProgress = 0;
+      }
+    }
+
+    // Return the result of evaluating the animation effect’s timing function
+    // passing directed progress as the input progress value.
+    Curve easingCurve = timing!._getEasingCurve()!;
+    return easingCurve.transform(directedProgress);
+  }
+
+  void _calculateTiming(double? localTime) {
+    double activeDuration = _calculateActiveDuration();
+    AnimationEffectPhase phase = _calculatePhase(activeDuration, localTime);
+    double? activeTime = _calculateActiveTime(activeDuration, localTime, phase);
+    double? overallProgress = _calculateOverallProgress(phase, activeTime);
+    double? simpleIterationProgress =
+        _calculateSimpleIterationProgress(overallProgress, phase, activeTime, activeDuration);
+    double? currentIteration = _calculateCurrentIteration(phase, activeTime, simpleIterationProgress, overallProgress);
+    PlaybackDirection? currentDirection = _calculateCurrentDirection(currentIteration);
+    double? directedProgress = _calculateDirectedProgress(currentIteration, currentDirection, simpleIterationProgress);
+    double? progress = _calculateTransformedProgress(phase, activeTime, directedProgress, currentDirection);
+
+    // (removed) deep timing diagnostic logs
+
+    _activeTime = activeTime;
+    _progress = progress;
+    // Floor the in-progress iteration so consumers (Animation) can detect
+    // boundary crossings without re-running the timing math.
+    _currentIterationIndex = currentIteration?.floor();
+  }
+
+  int? _currentIterationIndex;
+}
+
+class AnimationEffect {
+  EffectTiming? timing;
+
+  Map getComputedTiming() {
+    throw UnsupportedError('Not supported');
+  }
+
+  EffectTiming? getTiming() {
+    return timing;
+  }
+
+  updateTiming(Map<String, dynamic> optionalEffectTiming) {
+    optionalEffectTiming.forEach((key, value) {
+      switch (key) {
+        case 'duration':
+          timing!.duration = value;
+          break;
+        case 'delay':
+          timing!.delay = value;
+          break;
+        case 'easing':
+          timing!.easing = value;
+          break;
+        case 'direction':
+          timing!.direction = value;
+          break;
+        case 'endDelay':
+          timing!.endDelay = value;
+          break;
+        case 'fill':
+          timing!.fill = value;
+          break;
+        case 'iterationStart':
+          timing!.iterationStart = value;
+          break;
+        case 'iterations':
+          timing!.iterations = value;
+          break;
+      }
+    });
+  }
+}
+
+class EffectTiming {
+  // The number of milliseconds each iteration of the animation takes to complete.
+  // Defaults to 0. Although this is technically optional,
+  // keep in mind that your animation will not run if this value is 0.
+  double? duration;
+
+  // The number of milliseconds to delay the start of the animation.
+  // Defaults to 0.
+  double? delay;
+
+  // The rate of the animation's change over time.
+  // Accepts the pre-defined values "linear", "ease", "ease-in", "ease-out", and "ease-in-out",
+  // or a custom "cubic-bezier" value like "cubic-bezier(0.42, 0, 0.58, 1)".
+  // Defaults to "linear".
+  String? _easing;
+  Curve? _easingCurve;
+
+  // Whether the animation runs forwards (normal), backwards (reverse),
+  // switches direction after each iteration (alternate),
+  // or runs backwards and switches direction after each iteration (alternate-reverse).
+  // Defaults to "normal".
+  PlaybackDirection? direction;
+
+  // The number of milliseconds to delay after the end of an animation.
+  // This is primarily of use when sequencing animations based on the end time of another animation.
+  // Defaults to 0.
+  double? endDelay;
+
+  // Dictates whether the animation's effects should be reflected by the element(s) prior to playing ("backwards"),
+  // retained after the animation has completed playing ("forwards"), or both. Defaults to "none".
+  FillMode? fill;
+
+  // Describes at what point in the iteration the animation should start.
+  // 0.5 would indicate starting halfway through the first iteration for example,
+  // and with this value set, an animation with 2 iterations would end halfway through a third iteration.
+  // Defaults to 0.0.
+  double? iterationStart;
+
+  // The number of times the animation should repeat.
+  // Defaults to 1, and can also take a value of Infinity to make it repeat for as long as the element exists.
+  double? iterations;
+
+  EffectTiming({
+    this.duration = 0,
+    this.delay = 0,
+    this.endDelay = 0,
+    this.iterationStart = 0,
+    this.iterations = 1,
+    String easing = 'linear',
+    this.direction = PlaybackDirection.normal,
+    this.fill = FillMode.auto,
+  }) {
+    _easing = easing;
+
+    if (_easing != null) {
+      _easingCurve = _parseEasing(_easing);
+    }
+  }
+
+  String? get easing {
+    return _easing;
+  }
+
+  set easing(String? value) {
+    _easingCurve = _parseEasing(value);
+    _easing = value;
+  }
+
+  Curve? _getEasingCurve() {
+    return _easingCurve;
+  }
+
+}

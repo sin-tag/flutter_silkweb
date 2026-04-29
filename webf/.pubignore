@@ -1,0 +1,22 @@
+# Files to exclude from the published webf package on pub.dev.
+# Keeps the package small and ships only what consumers need.
+
+# Tests are not needed by consumers
+test/
+integration_test/
+
+# Internal docs
+CLAUDE.md
+AGENTS.md
+
+# Coverage / IDE
+coverage/
+.dart_tool/
+.idea/
+
+# Examples shipped at the root level live elsewhere
+example/
+
+# CHANGELOG entries pre-0.24 are noisy; if you want to slim further,
+# uncomment the line below and ship CHANGELOG-LATEST.md instead
+# CHANGELOG.md

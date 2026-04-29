@@ -1,0 +1,54 @@
+/*
+ * Copyright (C) 2024-present The OpenWebF Company. All rights reserved.
+ * Licensed under GNU GPL with Enterprise exception.
+ */
+/*
+ * Copyright (C) 2022-present The WebF authors. All rights reserved.
+ */
+
+#ifndef WIDGET_ELEMENT_SHAPE_H
+#define WIDGET_ELEMENT_SHAPE_H
+
+#include <../../../foundation/string/atomic_string.h>
+
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+#include "foundation/native_value.h"
+
+namespace webf {
+
+struct NativeWidgetElementShape {
+  const UTF8Char* name;
+  NativeValue* properties;
+  NativeValue* methods;
+  NativeValue* async_methods;
+  NativeValue* default_attributes;
+};
+
+class WidgetElementShape {
+ public:
+  WidgetElementShape(JSContext* ctx, NativeWidgetElementShape* native_widget_element_shape);
+
+  bool HasPropertyOrMethod(const AtomicString& name) const;
+  bool HasProperty(const AtomicString& name) const;
+  bool HasMethod(const AtomicString& name) const;
+  bool HasAsyncMethod(const AtomicString& name) const;
+
+  void GetAllPropertyNames(std::vector<AtomicString>& names) const;
+  AtomicString GetDefaultAttributeValue(const AtomicString& name) const;
+
+ private:
+  void InitializeProperties(JSContext* ctx, NativeValue* properties);
+  void InitializeMethods(JSContext* ctx, NativeValue* methods);
+  void InitializeAsyncMethods(JSContext* ctx, NativeValue* async_methods);
+  void InitializeDefaultAttributes(JSContext* ctx, NativeValue* default_attributes);
+  std::unordered_set<AtomicString, AtomicString::KeyHasher> built_in_properties_;
+  std::unordered_set<AtomicString, AtomicString::KeyHasher> built_in_methods_;
+  std::unordered_set<AtomicString, AtomicString::KeyHasher> built_in_async_methods_;
+  std::unordered_map<AtomicString, AtomicString, AtomicString::KeyHasher> default_attributes_;
+};
+
+}  // namespace webf
+
+#endif  // WIDGET_ELEMENT_SHAPE_H

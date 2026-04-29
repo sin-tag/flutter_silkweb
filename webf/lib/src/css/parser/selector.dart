@@ -1,0 +1,572 @@
+/*
+Copyright 2013, the Dart project authors.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+    * Redistributions of source code must retain the above copyright
+      notice, this list of conditions and the following disclaimer.
+    * Redistributions in binary form must reproduce the above
+      copyright notice, this list of conditions and the following
+      disclaimer in the documentation and/or other materials provided
+      with the distribution.
+    * Neither the name of Google LLC nor the names of its
+      contributors may be used to endorse or promote products derived
+      from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+*/
+
+part of 'parser.dart';
+
+const kIdSpecificity = 0x010000;
+const kClassLikeSpecificity = 0x000100;
+const kTagSpecificity = 0x000001;
+const kPseudoElementMaskBefore = 1 << 0;
+const kPseudoElementMaskAfter = 1 << 1;
+const kPseudoElementMaskFirstLetter = 1 << 2;
+const kPseudoElementMaskFirstLine = 1 << 3;
+const kPseudoElementMaskPlaceholder = 1 << 4;
+const kPseudoElementMaskSelection = 1 << 5;
+
+// https://drafts.csswg.org/cssom/#parse-a-group-of-selectors
+class SelectorGroup extends TreeNode {
+  final SelectorTextVisitor _selectorTextVisitor = SelectorTextVisitor();
+  final List<Selector> selectors;
+  List<Selector>? _selectorsWithoutPseudoElement;
+  bool? _hasPseudoElement;
+  int? _pseudoElementMask;
+  int? _structuralHashCode;
+
+  int _matchSpecificity = -1;
+
+  int get matchSpecificity => _matchSpecificity;
+
+  set matchSpecificity(int specificity) {
+    if (specificity > _matchSpecificity || specificity == -1) {
+      _matchSpecificity = specificity;
+    }
+  }
+
+  String? _selectorText;
+  String get selectorText {
+    if (_selectorText != null) {
+      return _selectorText ?? '';
+    }
+    _selectorTextVisitor.visitSelectorGroup(this);
+    _selectorText = _selectorTextVisitor.toString();
+    return _selectorText ?? '';
+  }
+
+  SelectorGroup(this.selectors) : super();
+
+  bool get hasPseudoElement {
+    return _hasPseudoElement ??=
+        selectors.any((selector) => selector.hasPseudoElement);
+  }
+
+  List<Selector> get selectorsWithoutPseudoElement {
+    return _selectorsWithoutPseudoElement ??= selectors
+        .where((selector) => !selector.hasPseudoElement)
+        .toList(growable: false);
+  }
+
+  int get pseudoElementMask {
+    return _pseudoElementMask ??= selectors.fold<int>(
+        0, (mask, selector) => mask | selector.pseudoElementMask);
+  }
+
+  int get structuralHashCode => _structuralHashCode ??= selectorText.hashCode;
+
+  bool structurallyEquals(SelectorGroup other) {
+    if (identical(this, other)) return true;
+    return selectorText == other.selectorText;
+  }
+
+  @override
+  dynamic visit(Visitor visitor) => visitor.visitSelectorGroup(this);
+}
+
+class Selector extends TreeNode {
+  final List<SimpleSelectorSequence> simpleSelectorSequences;
+  _SelectorMatchPlan? _matchPlan;
+
+  Selector(this.simpleSelectorSequences) : super();
+
+  void add(SimpleSelectorSequence seq) => simpleSelectorSequences.add(seq);
+
+  int get length => simpleSelectorSequences.length;
+
+  int _specificity = -1;
+
+  @override
+  dynamic visit(Visitor visitor) => visitor.visitSelector(this);
+
+  int get specificity {
+    if (_specificity == -1) {
+      _specificity = _calcSpecificity();
+    }
+    return _specificity;
+  }
+
+  bool get hasPseudoElement => _ensureMatchPlan().hasPseudoElement;
+
+  int get pseudoElementMask => _ensureMatchPlan().pseudoElementMask;
+
+  SelectorAncestorHints get descendantAncestorHints =>
+      _ensureMatchPlan().descendantAncestorHints;
+
+  List<List<SimpleSelector>> get matchGroups => _ensureMatchPlan().groups;
+
+  List<int> get matchGroupCombinators => _ensureMatchPlan().groupCombinators;
+
+  _SelectorMatchPlan _ensureMatchPlan() {
+    return _matchPlan ??= _SelectorMatchPlan.compile(this);
+  }
+
+  int _calcSpecificity() {
+    int specificity = 0;
+    for (final simpleSelectorSequence in simpleSelectorSequences) {
+      specificity +=
+          _specificityForSimpleSelector(simpleSelectorSequence.simpleSelector);
+    }
+    return specificity;
+  }
+
+  int _specificityForSimpleSelector(SimpleSelector simpleSelector) {
+    switch (simpleSelector) {
+      case IdSelector _:
+        return kIdSpecificity;
+      case ClassSelector _:
+      case AttributeSelector _:
+        return kClassLikeSpecificity;
+      case PseudoClassFunctionSelector node:
+        final String name = node.name.toLowerCase();
+        if (name == 'where') {
+          return 0;
+        }
+        if (name == 'is' || name == 'has') {
+          final arg = node.argument;
+          if (arg is SelectorGroup) {
+            int maxSpecificity = 0;
+            for (final sel in arg.selectors) {
+              maxSpecificity = math.max(maxSpecificity, sel.specificity);
+            }
+            return maxSpecificity;
+          }
+          // Fallback: treat as a normal pseudo-class.
+          return kClassLikeSpecificity;
+        }
+        return kClassLikeSpecificity;
+      case PseudoClassSelector _:
+        return kClassLikeSpecificity;
+      case NegationSelector node:
+        final arg = node.negationArg;
+        if (arg == null) return 0;
+        return _specificityForSimpleSelector(arg);
+      case ElementSelector _:
+      case PseudoElementSelector _:
+        return kTagSpecificity;
+      default:
+        return 0;
+    }
+  }
+
+  // True if any component simple selector is invalid.
+  bool get hasInvalid =>
+      simpleSelectorSequences.any((s) => s.simpleSelector is InvalidSelector);
+}
+
+class SelectorAncestorHints {
+  final Set<String> ids = <String>{};
+  final Set<String> classes = <String>{};
+  final Set<String> tags = <String>{};
+
+  bool get isEmpty => ids.isEmpty && classes.isEmpty && tags.isEmpty;
+}
+
+class _SelectorMatchPlan {
+  final List<List<SimpleSelector>> groups;
+  final List<int> groupCombinators;
+  final SelectorAncestorHints descendantAncestorHints;
+  final bool hasPseudoElement;
+  final int pseudoElementMask;
+
+  _SelectorMatchPlan._({
+    required this.groups,
+    required this.groupCombinators,
+    required this.descendantAncestorHints,
+    required this.hasPseudoElement,
+    required this.pseudoElementMask,
+  });
+
+  factory _SelectorMatchPlan.compile(Selector selector) {
+    final List<List<SimpleSelector>> groups = <List<SimpleSelector>>[];
+    final List<int> groupCombinators = <int>[];
+    final SelectorAncestorHints descendantAncestorHints =
+        SelectorAncestorHints();
+    List<SimpleSelector> current = <SimpleSelector>[];
+    bool hasPseudoElement = false;
+    int pseudoElementMask = 0;
+
+    for (final SimpleSelectorSequence seq
+        in selector.simpleSelectorSequences.reversed) {
+      final SimpleSelector simpleSelector = seq.simpleSelector;
+      current.add(simpleSelector);
+      if (simpleSelector is PseudoElementSelector ||
+          simpleSelector is PseudoElementFunctionSelector) {
+        hasPseudoElement = true;
+        pseudoElementMask |= _pseudoElementBit(simpleSelector.name);
+      }
+      if (seq.combinator != TokenKind.COMBINATOR_NONE) {
+        groups.add(current);
+        groupCombinators.add(seq.combinator);
+        current = <SimpleSelector>[];
+      }
+    }
+
+    if (current.isNotEmpty) {
+      groups.add(current);
+      groupCombinators.add(TokenKind.COMBINATOR_NONE);
+    }
+
+    for (int groupIndex = 0; groupIndex < groups.length - 1; groupIndex++) {
+      if (groupCombinators[groupIndex] != TokenKind.COMBINATOR_DESCENDANT) {
+        continue;
+      }
+
+      final List<SimpleSelector> ancestorGroup = groups[groupIndex + 1];
+      for (final SimpleSelector simpleSelector in ancestorGroup) {
+        if (simpleSelector is IdSelector) {
+          descendantAncestorHints.ids.add(simpleSelector.name);
+        } else if (simpleSelector is ClassSelector) {
+          descendantAncestorHints.classes.add(simpleSelector.name);
+        } else if (simpleSelector is ElementSelector &&
+            !simpleSelector.isWildcard) {
+          descendantAncestorHints.tags.add(simpleSelector.name.toUpperCase());
+        }
+      }
+    }
+
+    return _SelectorMatchPlan._(
+      groups: groups,
+      groupCombinators: groupCombinators,
+      descendantAncestorHints: descendantAncestorHints,
+      hasPseudoElement: hasPseudoElement,
+      pseudoElementMask: pseudoElementMask,
+    );
+  }
+
+  static int _pseudoElementBit(String name) {
+    switch (name) {
+      case 'before':
+        return kPseudoElementMaskBefore;
+      case 'after':
+        return kPseudoElementMaskAfter;
+      case 'first-letter':
+        return kPseudoElementMaskFirstLetter;
+      case 'first-line':
+        return kPseudoElementMaskFirstLine;
+      case 'placeholder':
+        return kPseudoElementMaskPlaceholder;
+      case 'selection':
+        return kPseudoElementMaskSelection;
+      default:
+        return 0;
+    }
+  }
+}
+
+class SimpleSelectorSequence extends TreeNode {
+  /// +, >, ~, NONE
+  int combinator;
+  final SimpleSelector simpleSelector;
+
+  SimpleSelectorSequence(this.simpleSelector,
+      [this.combinator = TokenKind.COMBINATOR_NONE])
+      : super();
+
+  bool get isCombinatorNone => combinator == TokenKind.COMBINATOR_NONE;
+  bool get isCombinatorPlus => combinator == TokenKind.COMBINATOR_PLUS;
+  bool get isCombinatorGreater => combinator == TokenKind.COMBINATOR_GREATER;
+  bool get isCombinatorTilde => combinator == TokenKind.COMBINATOR_TILDE;
+  bool get isCombinatorDescendant =>
+      combinator == TokenKind.COMBINATOR_DESCENDANT;
+
+  String get combinatorToString {
+    switch (combinator) {
+      case TokenKind.COMBINATOR_DESCENDANT:
+        return ' ';
+      case TokenKind.COMBINATOR_GREATER:
+        return ' > ';
+      case TokenKind.COMBINATOR_PLUS:
+        return ' + ';
+      case TokenKind.COMBINATOR_TILDE:
+        return ' ~ ';
+      default:
+        return '';
+    }
+  }
+
+  @override
+  dynamic visit(Visitor visitor) => visitor.visitSimpleSelectorSequence(this);
+
+  @override
+  String toString() => simpleSelector.name;
+}
+
+final Set<String> selectorKeySet = {};
+
+// All other selectors (element, #id, .class, attribute, pseudo, negation,
+// namespace, *) are derived from this selector.
+abstract class SimpleSelector extends TreeNode {
+  final dynamic _name; // ThisOperator, Identifier, Negation, others?
+
+  SimpleSelector(this._name) : super() {
+    selectorKeySet.add(_name.name);
+  }
+
+  // TOOD(srawlins): Figure this one out.
+  // ignore: avoid_dynamic_calls
+  String get name => _name.name as String;
+
+  bool get isWildcard => _name is Wildcard;
+
+  bool get isThis => _name is ThisOperator;
+
+  @override
+  dynamic visit(Visitor visitor) => visitor.visitSimpleSelector(this);
+}
+
+// Marker for an invalid simple selector so selector lists can be discarded.
+class InvalidSelector extends SimpleSelector {
+  InvalidSelector(Identifier super.name);
+
+  @override
+  String toString() => '';
+
+  @override
+  dynamic visit(Visitor visitor) => visitor.visitSimpleSelector(this);
+}
+
+// element name
+class ElementSelector extends SimpleSelector {
+  ElementSelector(super.name);
+
+  @override
+  String toString() => name;
+
+  @override
+  dynamic visit(Visitor visitor) => visitor.visitElementSelector(this);
+}
+
+// [attr op value]
+class AttributeSelector extends SimpleSelector {
+  final int _op;
+  final dynamic value;
+
+  AttributeSelector(Identifier super.name, this._op, this.value);
+
+  int get operatorKind => _op;
+
+  String? matchOperator() {
+    switch (_op) {
+      case TokenKind.EQUALS:
+        return '=';
+      case TokenKind.INCLUDES:
+        return '~=';
+      case TokenKind.DASH_MATCH:
+        return '|=';
+      case TokenKind.PREFIX_MATCH:
+        return '^=';
+      case TokenKind.SUFFIX_MATCH:
+        return '\$=';
+      case TokenKind.SUBSTRING_MATCH:
+        return '*=';
+      case TokenKind.NO_MATCH:
+        return '';
+    }
+    return null;
+  }
+
+  // Return the TokenKind for operator used by visitAttributeSelector.
+  String? matchOperatorAsTokenString() {
+    switch (_op) {
+      case TokenKind.EQUALS:
+        return 'EQUALS';
+      case TokenKind.INCLUDES:
+        return 'INCLUDES';
+      case TokenKind.DASH_MATCH:
+        return 'DASH_MATCH';
+      case TokenKind.PREFIX_MATCH:
+        return 'PREFIX_MATCH';
+      case TokenKind.SUFFIX_MATCH:
+        return 'SUFFIX_MATCH';
+      case TokenKind.SUBSTRING_MATCH:
+        return 'SUBSTRING_MATCH';
+    }
+    return null;
+  }
+
+  String valueToString() {
+    if (value != null) {
+      if (value is Identifier) {
+        return value.toString();
+      } else {
+        return '"$value"';
+      }
+    } else {
+      return '';
+    }
+  }
+
+  @override
+  String toString() => '[$name${matchOperator()}${valueToString()}]';
+
+  @override
+  dynamic visit(Visitor visitor) => visitor.visitAttributeSelector(this);
+}
+
+// #id
+class IdSelector extends SimpleSelector {
+  IdSelector(Identifier super.name);
+
+  @override
+  String toString() => '#$_name';
+
+  @override
+  dynamic visit(Visitor visitor) => visitor.visitIdSelector(this);
+}
+
+// .class
+class ClassSelector extends SimpleSelector {
+  ClassSelector(Identifier super.name);
+
+  @override
+  String toString() => '.$_name';
+
+  @override
+  dynamic visit(Visitor visitor) => visitor.visitClassSelector(this);
+}
+
+// :pseudoClass
+class PseudoClassSelector extends SimpleSelector {
+  PseudoClassSelector(Identifier super.name);
+
+  @override
+  String toString() => ':$name';
+
+  @override
+  dynamic visit(Visitor visitor) => visitor.visitPseudoClassSelector(this);
+}
+
+// ::pseudoElement
+class PseudoElementSelector extends SimpleSelector {
+  // If true, this is a CSS2.1 pseudo-element with only a single ':'.
+  final bool isLegacy;
+
+  PseudoElementSelector(Identifier super.name, {this.isLegacy = false});
+
+  @override
+  String toString() => "${isLegacy ? ':' : '::'}$name";
+
+  @override
+  dynamic visit(Visitor visitor) => visitor.visitPseudoElementSelector(this);
+}
+
+// :pseudoClassFunction(argument)
+class PseudoClassFunctionSelector extends PseudoClassSelector {
+  final dynamic argument; // Selector, List<String>
+
+  PseudoClassFunctionSelector(super.name, this.argument);
+
+  Selector get selector => argument as Selector;
+
+  List<String> get expression => argument as List<String>;
+
+  @override
+  dynamic visit(Visitor visitor) =>
+      visitor.visitPseudoClassFunctionSelector(this);
+}
+
+// ::pseudoElementFunction(expression)
+class PseudoElementFunctionSelector extends PseudoElementSelector {
+  final List<String> expression;
+
+  PseudoElementFunctionSelector(super.name, this.expression);
+
+  @override
+  dynamic visit(Visitor visitor) =>
+      visitor.visitPseudoElementFunctionSelector(this);
+}
+
+// :NOT(negation_arg)
+class NegationSelector extends SimpleSelector {
+  final SimpleSelector? negationArg;
+
+  NegationSelector(this.negationArg) : super(Negation());
+
+  @override
+  dynamic visit(Visitor visitor) => visitor.visitNegationSelector(this);
+}
+
+/// Merge the nested selector sequences [current] to the [parent] sequences or
+/// substitue any & with the parent selector.
+List<SimpleSelectorSequence> mergeNestedSelector(
+    List<SimpleSelectorSequence> parent, List<SimpleSelectorSequence> current) {
+  // If any & operator then the parent selector will be substituted otherwise
+  // the parent selector is pre-pended to the current selector.
+  var hasThis = current.any((s) => s.simpleSelector.isThis);
+
+  var newSequence = <SimpleSelectorSequence>[];
+
+  if (!hasThis) {
+    // If no & in the sector group then prefix with the parent selector.
+    newSequence.addAll(parent);
+    newSequence.addAll(_convertToDescendentSequence(current));
+  } else {
+    for (var sequence in current) {
+      if (sequence.simpleSelector.isThis) {
+        // Substitue the & with the parent selector and only use a combinator
+        // descendant if & is prefix by a sequence with an empty name e.g.,
+        // "... + &", "&", "... ~ &", etc.
+        var hasPrefix = newSequence.isNotEmpty &&
+            newSequence.last.simpleSelector.name.isNotEmpty;
+        newSequence
+            .addAll(hasPrefix ? _convertToDescendentSequence(parent) : parent);
+      } else {
+        newSequence.add(sequence);
+      }
+    }
+  }
+
+  return newSequence;
+}
+
+/// Return selector sequences with first sequence combinator being a
+/// descendant.  Used for nested selectors when the parent selector needs to
+/// be prefixed to a nested selector or to substitute the this (&) with the
+/// parent selector.
+List<SimpleSelectorSequence> _convertToDescendentSequence(
+    List<SimpleSelectorSequence> sequences) {
+  if (sequences.isEmpty) return sequences;
+
+  var newSequences = <SimpleSelectorSequence>[];
+  var first = sequences.first;
+  newSequences.add(SimpleSelectorSequence(
+      first.simpleSelector, TokenKind.COMBINATOR_DESCENDANT));
+  newSequences.addAll(sequences.skip(1));
+
+  return newSequences;
+}
