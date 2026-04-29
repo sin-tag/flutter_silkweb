@@ -1,10 +1,10 @@
 cmake_minimum_required(VERSION 3.14)
-set(PROJECT_NAME "webf")
+# Project name must match the package name in pubspec.yaml — Flutter's
+# windows build looks up `<package>_plugin` to link.
+set(PROJECT_NAME "flutter_silkweb")
 project(${PROJECT_NAME} LANGUAGES CXX)
 
-# This value is used when generating builds using this plugin, so it must
-# not be changed
-set(PLUGIN_NAME "webf_plugin")
+set(PLUGIN_NAME "flutter_silkweb_plugin")
 
 add_library(${PLUGIN_NAME} SHARED
     "webf_plugin.cpp"
@@ -54,7 +54,7 @@ else()
 endif()
 
 # List of absolute paths to libraries that should be bundled with the plugin
-set(webf_bundled_libraries
+set(flutter_silkweb_bundled_libraries
     ${CMAKE_CURRENT_SOURCE_DIR}/libgcc_s_seh-1.dll
     ${CMAKE_CURRENT_SOURCE_DIR}/libc++.dll
     ${CMAKE_CURRENT_SOURCE_DIR}/libwinpthread-1.dll

@@ -2,15 +2,15 @@
 # To learn more about a Podspec see http://guides.cocoapods.org/syntax/podspec.html.
 #
 Pod::Spec.new do |s|
-  s.name             = 'webf'
-  s.version          = '0.14.0'
-  s.summary          = 'Build flutter apps with HTML/CSS and JavaScript.'
+  s.name             = 'flutter_silkweb'
+  s.version          = '1.0.0'
+  s.summary          = 'Embed React/Vue/Tailwind apps inside Flutter at native speed.'
   s.description      = <<-DESC
-  WebF (Web on Flutter) is a W3C standards-compliant web rendering engine based on Flutter, allowing web applications to run natively on Flutter.
+  flutter_silkweb is a W3C-compliant web rendering engine for Flutter, optimized fork of openwebf/webf with layout-read cache, smooth animations, full Tailwind support and a typed reactive bridge.
                        DESC
-  s.homepage         = 'https://openwebf.com'
+  s.homepage         = 'https://github.com/sin-tag/flutter_silkweb'
   s.license          = { :file => '../LICENSE' }
-  s.author           = { 'OpenWebF' => 'dongtiangche@outlook.com' }
+  s.author           = { 'sin-tag' => 'hoangtuyensk@gmail.com' }
   s.source           = { :path => '.' }
   s.source_files = 'Classes/**/*'
   s.dependency 'Flutter'
